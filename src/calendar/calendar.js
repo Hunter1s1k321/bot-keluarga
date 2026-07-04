@@ -170,6 +170,16 @@ export async function saveExtractedEvent(e) {
   return { summary, event };
 }
 
+/** Ambil detail 1 event (mis. master recurring buat baca RRULE-nya). */
+export async function getEvent(eventId) {
+  const cal = calendarClient();
+  const res = await cal.events.get({
+    calendarId: config.calendar.id,
+    eventId,
+  });
+  return res.data;
+}
+
 /** Hapus event by id (dipakai saat verifikasi/test cleanup). */
 export async function deleteEvent(eventId) {
   const cal = calendarClient();

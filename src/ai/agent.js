@@ -6,6 +6,7 @@ import {
   listEvents,
   saveExtractedEvent,
   deleteEvent,
+  getEvent,
 } from '../calendar/calendar.js';
 import {
   nowContext,
@@ -14,6 +15,7 @@ import {
   dayStartISO,
   dayEndISO,
   formatEventDate,
+  formatTime,
 } from '../utils/dates.js';
 import { roster } from '../people.js';
 
@@ -28,6 +30,25 @@ const DRY_RUN = process.env.AGENT_DRY_RUN === '1';
 function whenText(event) {
   const st = event.start || {};
   return st.dateTime ? formatEventDate(st.dateTime) : `${st.date} (seharian)`;
+}
+
+const DAY_ID = {
+  MO: 'Senin', TU: 'Selasa', WE: 'Rabu', TH: 'Kamis',
+  FR: 'Jumat', SA: 'Sabtu', SU: 'Minggu',
+};
+/** RRULE -> teks manusia, mis. "tiap Selasa/Kamis/Jumat, sampai 31/12/2026". */
+function describeRecurrence(recurrence) {
+  const rule = (recurrence || []).find((r) => r.startsWith('RRULE'));
+  if (!rule) return 'berulang';
+  const byday = rule.match(/BYDAY=([^;]+)/)?.[1];
+  const until = rule.match(/UNTIL=(\d{8})/)?.[1];
+  let s = byday
+    ? 'tiap ' + byday.split(',').map((d) => DAY_ID[d] || d).join('/')
+    : 'berulang';
+  if (until) {
+    s += `, sampai ${until.slice(6, 8)}/${until.slice(4, 6)}/${until.slice(0, 4)}`;
+  }
+  return s;
 }
 
 function matchEvents(events, { person, keyword }) {
@@ -186,6 +207,7 @@ function agentInstruction(mode = 'direct', speaker = '') {
     '- Nambah acara (teks/gambar/PDF) -> pahami detail -> create_events. Cek dulu pakai list_events biar gak dobel.',
     '- ACARA BERULANG (mis. "les tiap selasa kamis jumat", "meeting tiap hari sampai akhir bulan"): bikin SATU event aja dengan field "repeat" (freq/days/until). JANGAN pernah bikin banyak event satu-satu (dilarang keras). Field date = tanggal kejadian PERTAMA. Contoh: les Sel/Kam/Jum sampai 31 Des 2026 -> repeat={freq:"WEEKLY", days:["TU","TH","FR"], until:"2026-12-31"}.',
     '- Hapus/batalin/"reset" acara -> list_events dulu buat dapet id. Kalau yang mau dihapus LEBIH DARI SATU (atau "semua"), KONFIRMASI dulu ("yakin hapus N acara?") tunggu user iya, baru delete_events. Kalau cuma 1 & jelas, langsung.',
+    '- Acara "berulang" di list_events udah 1 baris (recurring:true). Hapus pakai id itu = hapus SELURUH seri sekaligus (jangan minta hapus tiap tanggal).',
     '- Butuh info terkini/berita/fakta -> panggil search_web.',
     '# Sumber & link (PENTING)',
     '- Setelah pakai search_web, SELALU cantumin link sumbernya (dari field "sources") di jawaban, biar bisa dicek. Cukup 1-3 link paling relevan.',
@@ -220,14 +242,31 @@ async function executeTool(name, args) {
         const to = args.dateTo || addDays(ymd(), 60);
         let evs = await listEvents(dayStartISO(from), dayEndISO(to));
         evs = matchEvents(evs, args);
-        return {
-          events: evs.map((e) => ({
-            id: e.id,
+        // Kolaps instance recurring jadi 1 baris (biar gak banjir & gampang dihapus seri-nya)
+        const seen = new Set();
+        const rows = [];
+        for (const e of evs) {
+          const seriesId = e.recurringEventId || null;
+          if (seriesId) {
+            if (seen.has(seriesId)) continue; // 1 baris per seri
+            seen.add(seriesId);
+          }
+          let when = whenText(e);
+          if (seriesId) {
+            // ambil master buat baca pola berulangnya (hari + tanggal akhir)
+            const master = await getEvent(seriesId).catch(() => null);
+            const jam = e.start?.dateTime ? ` jam ${formatTime(e.start.dateTime)}` : '';
+            when = `${describeRecurrence(master?.recurrence)}${jam}`;
+          }
+          rows.push({
+            id: seriesId || e.id, // buat hapus: seri pakai seriesId
             summary: e.summary,
-            when: whenText(e),
+            when,
             location: e.location || '',
-          })),
-        };
+            recurring: !!seriesId,
+          });
+        }
+        return { events: rows };
       }
       case 'create_events': {
         if (DRY_RUN) {
