@@ -112,6 +112,7 @@ export async function handleMessage(sock, msg) {
       media,
       history,
       mode: directlyAddressed ? 'direct' : 'proactive',
+      speaker: nick,
     });
     logger.info({ toolsUsed, nick, mode }, '[agent selesai]');
 

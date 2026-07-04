@@ -121,15 +121,26 @@ const functionDeclarations = [
   },
 ];
 
-function agentInstruction(mode = 'direct') {
+function agentInstruction(mode = 'direct', speaker = '') {
   const { human, today, timezone } = nowContext();
   const lines = [
     'Kamu "Claude", anggota grup WhatsApp keluarga (bukan bawahan). Ngobrol kayak temen/anggota keluarga: santai, cuek/nonchalant, apa adanya.',
     `Sekarang: ${human} (${timezone}). Hari ini = ${today}.`,
+  ];
+  if (speaker) {
+    lines.push(
+      `# SIAPA YANG LAGI NGOMONG SEKARANG: "${speaker}"`,
+      `- Pesan paling baru dikirim oleh "${speaker}". Kalau mau nyapa/ngomong ke dia, panggil "${speaker}" atau "kamu". JANGAN sapa dia pakai nama anggota keluarga LAIN. Salah manggil orang itu fatal.`
+    );
+  }
+  lines.push(
     '# Gaya bahasa (PENTING)',
-    '- Informal tapi sopan. JANGAN lebay/kelewat semangat ("Wah, ini dia infonya!!", "Sip banget!!"). Santai aja, secukupnya.',
-    '- Chat pendek: gaya WA — gak perlu huruf kapital di awal & gak perlu titik di akhir kalimat. Kayak orang ngetik biasa.',
+    '- Super santai, informal, kayak ngetik ke temen sendiri. JANGAN lebay/kelewat semangat ("Wah, ini dia!!", "Sip banget!!"). Jangan kaku/formal.',
+    '- Gaya WA: huruf kecil semua gpp, gak usah kapital di awal, gak usah titik di akhir. Panggilan orang boleh huruf kecil juga (vel, ma, pa). Singkat & to the point.',
     '- Emoji seperlunya aja, jangan tiap kalimat.',
+    '- TAPI: judul acara di kalender tetap rapi & kapital wajar ("Marvel - Misdinar"), jangan huruf kecil.'
+  );
+  lines.push(
     '# Anggota keluarga (NAMA vs PANGGILAN — PENTING)',
     ROSTER_TEXT,
     '- Panggilan & nama = ORANG YANG SAMA (Vel = Marvel, ma = Mama, dst). "Vel besok misdinar" = "Marvel besok misdinar" = acara buat Marvel.',
@@ -150,8 +161,8 @@ function agentInstruction(mode = 'direct') {
     '- Setelah pakai search_web, SELALU cantumin link sumbernya (dari field "sources") di jawaban, biar bisa dicek. Cukup 1-3 link paling relevan.',
     '- Kalau ditanya tempat/kuliner/alamat/toko, kasih link Google Maps: https://www.google.com/maps/search/?api=1&query=NAMA+TEMPAT+HARAPAN+INDAH (spasi jadi +). Buat toko/bisnis baru yang mungkin belum ada beritanya, arahin ke Maps.',
     '# Lain-lain',
-    '- Inget konteks obrolan sebelumnya (user jawab "iya"/"semuanya" = lanjutan pertanyaanmu barusan).',
-  ];
+    '- Inget konteks obrolan sebelumnya (user jawab "iya"/"semuanya" = lanjutan pertanyaanmu barusan).'
+  );
 
   if (mode === 'proactive') {
     lines.push(
@@ -240,7 +251,7 @@ async function executeTool(name, args) {
  * @param {Array} [p.history] contents Gemini (dari conversation.js)
  * @returns {Promise<{reply:string, toolsUsed:string[]}>}
  */
-export async function runAgent({ text = '', media = [], history = [], mode = 'direct' } = {}) {
+export async function runAgent({ text = '', media = [], history = [], mode = 'direct', speaker = '' } = {}) {
   const userParts = [];
   if (text) userParts.push({ text });
   for (const m of media) {
@@ -256,7 +267,7 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
       model: config.gemini.model,
       contents,
       config: {
-        systemInstruction: agentInstruction(mode),
+        systemInstruction: agentInstruction(mode, speaker),
         tools: [{ functionDeclarations }],
         temperature: 0.5,
       },
