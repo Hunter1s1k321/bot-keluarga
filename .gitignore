@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Secrets & credentials — JANGAN PERNAH commit ini
+.env
+credentials.json
+token.json
+
+# Session login WhatsApp (Baileys) — JANGAN commit
+auth/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code local settings (per-mesin)
+.claude/settings.local.json
