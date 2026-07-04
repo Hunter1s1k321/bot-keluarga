@@ -5,6 +5,7 @@ import { isQuotaError } from '../ai/gemini.js';
 import { detectMedia, downloadAsBase64 } from '../utils/media.js';
 import { getHistory, pushTurn, clearHistory } from './conversation.js';
 import { identify, senderNumber } from '../people.js';
+import { buildMorningDigest, checkUpcoming } from '../scheduler/cron.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -57,6 +58,16 @@ export async function handleMessage(sock, msg) {
   if (lower === '!reset') {
     clearHistory(jid);
     return void (await reply(sock, jid, msg, '🧹 Oke, konteks obrolan aku lupain ya.'));
+  }
+  if (lower === '!pagi') {
+    // tes manual rekap pagi (hari ini + besok)
+    const text = await buildMorningDigest();
+    return void (await reply(sock, jid, msg, text));
+  }
+  if (lower === '!ingat') {
+    // tes manual cek reminder 1 jam ke depan
+    await checkUpcoming(sock);
+    return void (await reply(sock, jid, msg, '(cek reminder 1 jam ke depan dijalanin)'));
   }
   if (lower === '!whoami') {
     const num = senderNumber(msg);

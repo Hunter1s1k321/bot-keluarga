@@ -58,6 +58,28 @@ export function plusOneHour(ymdStr, hhmm) {
   return { date: dt.toISOString().slice(0, 10), time: dt.toISOString().slice(11, 16) };
 }
 
+/** Jam:menit WIB dari Date/ISO, mis. "06:00". */
+export function formatTime(dateInput) {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}
+
+/** Label hari dari "YYYY-MM-DD", mis. "Sabtu, 5 Jul". */
+export function formatDayLabel(ymdStr) {
+  const d = new Date(`${ymdStr}T12:00:00+07:00`);
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: TZ,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  }).format(d);
+}
+
 /** Awal hari WIB dalam ISO, mis. "2026-07-05T00:00:00+07:00". */
 export function dayStartISO(ymdStr) {
   return `${ymdStr}T00:00:00+07:00`;
