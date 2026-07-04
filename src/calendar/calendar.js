@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { google } from 'googleapis';
 import { config } from '../config.js';
+import { addDays, plusOneHour } from '../utils/dates.js';
 
 /**
  * Bangun OAuth2 client dari credentials.json + token.json.
@@ -104,6 +105,48 @@ export async function listEvents(timeMin, timeMax, q) {
     maxResults: 100,
   });
   return res.data.items || [];
+}
+
+/**
+ * Simpan satu event hasil ekstrak Gemini ke Calendar.
+ * Judul dikasih prefix nama orang -> "Marvel - Misdinar".
+ * @param {object} e { person, title, date, startTime, endTime, allDay, location }
+ * @returns {Promise<{summary:string, event:object}>}
+ */
+export async function saveExtractedEvent(e) {
+  const person = (e.person || '').trim();
+  const title = (e.title || 'Acara').trim();
+  const summary = person ? `${person} - ${title}` : title;
+
+  const base = {
+    summary,
+    location: e.location || undefined,
+    description: 'Dicatat otomatis oleh bot keluarga.',
+  };
+
+  let event;
+  if (e.allDay || !e.startTime) {
+    event = await createEvent({
+      ...base,
+      allDay: true,
+      startDate: e.date,
+      endDate: addDays(e.date, 1), // end all-day eksklusif
+    });
+  } else {
+    let endDate = e.date;
+    let endTime = e.endTime;
+    if (!endTime) {
+      const plus = plusOneHour(e.date, e.startTime); // default durasi 1 jam
+      endDate = plus.date;
+      endTime = plus.time;
+    }
+    event = await createEvent({
+      ...base,
+      startDateTime: `${e.date}T${e.startTime}:00`,
+      endDateTime: `${endDate}T${endTime}:00`,
+    });
+  }
+  return { summary, event };
 }
 
 /** Hapus event by id (dipakai saat verifikasi/test cleanup). */

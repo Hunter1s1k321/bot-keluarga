@@ -5,6 +5,27 @@ import { nowContext } from '../utils/dates.js';
 
 const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
+/** Panggil Gemini dengan retry buat jaringan yang suka ngedip (home wifi). */
+async function generateWithRetry(params, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (e) {
+      lastErr = e;
+      const retriable =
+        /fetch failed|timeout|ECONNRESET|ETIMEDOUT|503|429|UND_ERR/i.test(
+          e?.message || ''
+        );
+      if (!retriable || i === tries - 1) throw e;
+      const wait = 1000 * (i + 1);
+      logger.warn(`Gemini gagal (${e.message}), retry ${i + 1}/${tries - 1} dalam ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
 // Skema output ekstraksi acara. Bisa banyak event (mis. dari 1 gambar jadwal).
 const eventsSchema = {
   type: Type.OBJECT,
@@ -81,7 +102,7 @@ export async function extractEvents({ text = '', media = [] } = {}) {
   }
   if (parts.length === 0) return [];
 
-  const res = await ai.models.generateContent({
+  const res = await generateWithRetry({
     model: config.gemini.model,
     contents: [{ role: 'user', parts }],
     config: {
@@ -104,7 +125,7 @@ export async function extractEvents({ text = '', media = [] } = {}) {
 
 /** Cek koneksi & API key valid (dipakai buat verifikasi Step 3). */
 export async function ping() {
-  const res = await ai.models.generateContent({
+  const res = await generateWithRetry({
     model: config.gemini.model,
     contents: 'Balas satu kata: OK',
   });

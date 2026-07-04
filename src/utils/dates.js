@@ -37,6 +37,27 @@ export function nowContext() {
   };
 }
 
+/** Tambah n hari ke string "YYYY-MM-DD" (buat end all-day yang eksklusif). */
+export function addDays(ymdStr, n) {
+  const [y, m, d] = ymdStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Tambah 1 jam ke jam dinding WIB (default durasi event kalau end tak diisi).
+ * Pakai UTC math biar aman rollover tengah malam; WIB tanpa DST jadi valid.
+ * @returns {{date:string, time:string}}
+ */
+export function plusOneHour(ymdStr, hhmm) {
+  const [y, m, d] = ymdStr.split('-').map(Number);
+  const [hh, mm] = hhmm.split(':').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, hh, mm));
+  dt.setUTCHours(dt.getUTCHours() + 1);
+  return { date: dt.toISOString().slice(0, 10), time: dt.toISOString().slice(11, 16) };
+}
+
 /** Format tanggal event calendar (untuk balasan ke user), dari Date/ISO. */
 export function formatEventDate(dateInput) {
   const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;

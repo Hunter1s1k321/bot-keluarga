@@ -1,6 +1,8 @@
 import { logger } from '../logger.js';
 import { isBotMentioned, isReplyToBot } from './mentions.js';
 import { extractEvents } from '../ai/gemini.js';
+import { saveExtractedEvent } from '../calendar/calendar.js';
+import { formatEventDate } from '../utils/dates.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -16,23 +18,21 @@ export function extractText(msg) {
   );
 }
 
-/** Format daftar event hasil ekstrak jadi teks preview yang enak dibaca. */
-function formatPreview(events) {
-  if (!events.length) {
-    return '🔍 Gak nemu detail acara di pesan itu. Coba sebutin nama acara + tanggal + jam ya.';
-  }
-  const lines = events.map((e, i) => {
-    const prefix = e.person ? `${e.person} - ` : '';
-    const when = e.allDay
-      ? `📅 ${e.date} (seharian)`
-      : `📅 ${e.date}  ⏰ ${e.startTime || '?'}${e.endTime ? '-' + e.endTime : ''}`;
-    const loc = e.location ? `\n   📍 ${e.location}` : '';
-    return `${i + 1}. *${prefix}${e.title}*\n   ${when}${loc}`;
+/** Format konfirmasi setelah event tersimpan ke Calendar. */
+function formatSaved(saved) {
+  const lines = saved.map((s, i) => {
+    const st = s.event.start || {};
+    const when = st.dateTime
+      ? formatEventDate(st.dateTime)
+      : `${st.date} (seharian)`;
+    const loc = s.event.location ? `\n   📍 ${s.event.location}` : '';
+    return `${i + 1}. *${s.summary}*\n   📅 ${when}${loc}`;
   });
-  return (
-    '🔍 *Hasil ekstrak (PREVIEW — belum disimpan ke Calendar):*\n\n' +
-    lines.join('\n\n')
-  );
+  const head =
+    saved.length === 1
+      ? '✅ Udah dicatat di Calendar Keluarga:'
+      : `✅ ${saved.length} acara udah dicatat di Calendar Keluarga:`;
+  return `${head}\n\n${lines.join('\n\n')}`;
 }
 
 /**
@@ -90,9 +90,39 @@ export async function handleMessage(sock, msg) {
   try {
     const events = await extractEvents({ text });
     logger.info({ events }, '[ekstrak] hasil Gemini');
-    await sock.sendMessage(jid, { text: formatPreview(events) }, { quoted: msg });
+
+    if (!events.length) {
+      await sock.sendMessage(
+        jid,
+        {
+          text: '🔍 Gak nemu detail acara di pesan itu. Coba sebutin nama acara + tanggal + jam ya.',
+        },
+        { quoted: msg }
+      );
+      return;
+    }
+
+    // Simpan semua event ke Calendar
+    const saved = [];
+    for (const e of events) {
+      try {
+        saved.push(await saveExtractedEvent(e));
+      } catch (err) {
+        logger.error(err, `Gagal simpan event: ${e.title}`);
+      }
+    }
+
+    if (!saved.length) {
+      await sock.sendMessage(
+        jid,
+        { text: '⚠️ Berhasil baca acaranya tapi gagal simpan ke Calendar. Cek koneksi ya.' },
+        { quoted: msg }
+      );
+      return;
+    }
+    await sock.sendMessage(jid, { text: formatSaved(saved) }, { quoted: msg });
   } catch (e) {
-    logger.error(e, 'Gagal ekstrak acara');
+    logger.error(e, 'Gagal proses acara');
     await sock.sendMessage(
       jid,
       { text: '⚠️ Waduh gagal proses. Cek API key / koneksi ya.' },
