@@ -71,6 +71,7 @@ export async function createEvent(p) {
     description: p.description || undefined,
     location: p.location || undefined,
   };
+  if (p.recurrence) event.recurrence = p.recurrence; // ["RRULE:..."]
 
   if (p.allDay) {
     event.start = { date: p.startDate };
@@ -107,6 +108,21 @@ export async function listEvents(timeMin, timeMax, q) {
   return res.data.items || [];
 }
 
+/** Susun RRULE dari objek repeat {freq, days[], until, count, interval}. */
+function buildRRULE(repeat) {
+  const p = [`FREQ=${String(repeat.freq || 'WEEKLY').toUpperCase()}`];
+  if (repeat.interval && repeat.interval > 1) p.push(`INTERVAL=${repeat.interval}`);
+  if (Array.isArray(repeat.days) && repeat.days.length) {
+    p.push(`BYDAY=${repeat.days.map((d) => d.toUpperCase()).join(',')}`);
+  }
+  if (repeat.until) {
+    p.push(`UNTIL=${String(repeat.until).replace(/-/g, '')}T235959Z`);
+  } else if (repeat.count) {
+    p.push(`COUNT=${repeat.count}`);
+  }
+  return [`RRULE:${p.join(';')}`];
+}
+
 /**
  * Simpan satu event hasil ekstrak Gemini ke Calendar.
  * Judul dikasih prefix nama orang -> "Marvel - Misdinar".
@@ -126,6 +142,8 @@ export async function saveExtractedEvent(e) {
     location: e.location || undefined,
     description: 'Dicatat otomatis oleh bot keluarga.',
   };
+  // Acara berulang -> satu event dengan RRULE (bukan banyak event)
+  if (e.repeat && e.repeat.freq) base.recurrence = buildRRULE(e.repeat);
 
   let event;
   if (e.allDay || !e.startTime) {

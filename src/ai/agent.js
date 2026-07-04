@@ -83,6 +83,35 @@ const functionDeclarations = [
               endTime: { type: Type.STRING, description: 'HH:MM, kosong kalau tak ada.' },
               allDay: { type: Type.BOOLEAN, description: 'true kalau seharian.' },
               location: { type: Type.STRING, description: 'Lokasi (opsional).' },
+              repeat: {
+                type: Type.OBJECT,
+                description:
+                  'Isi HANYA kalau acara BERULANG (mis. "tiap selasa", "setiap hari"). Bikin SATU event berulang, JANGAN banyak event.',
+                properties: {
+                  freq: {
+                    type: Type.STRING,
+                    enum: ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'],
+                    description: 'Frekuensi ulang.',
+                  },
+                  days: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.STRING,
+                      enum: ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'],
+                    },
+                    description:
+                      'Hari (buat WEEKLY). senin=MO, selasa=TU, rabu=WE, kamis=TH, jumat=FR, sabtu=SA, minggu=SU.',
+                  },
+                  until: {
+                    type: Type.STRING,
+                    description: 'Tanggal berhenti YYYY-MM-DD (opsional).',
+                  },
+                  count: {
+                    type: Type.NUMBER,
+                    description: 'Jumlah kejadian (opsional, alternatif until).',
+                  },
+                },
+              },
             },
             required: ['title', 'date', 'allDay'],
           },
@@ -155,6 +184,7 @@ function agentInstruction(mode = 'direct', speaker = '') {
     '- Judul acara akhirnya jadi "Nama - Acara" (mis. "Marvel - Misdinar"). Tapi di tool create_events isi TERPISAH: person="Marvel", title="Misdinar" (tanpa nama). Sistem yang gabungin. JANGAN masukin nama orang ke field title.',
     '- Pertanyaan jadwal -> panggil list_events (rentang tanggal yang pas), jawab natural. JANGAN ngarang acara.',
     '- Nambah acara (teks/gambar/PDF) -> pahami detail -> create_events. Cek dulu pakai list_events biar gak dobel.',
+    '- ACARA BERULANG (mis. "les tiap selasa kamis jumat", "meeting tiap hari sampai akhir bulan"): bikin SATU event aja dengan field "repeat" (freq/days/until). JANGAN pernah bikin banyak event satu-satu (dilarang keras). Field date = tanggal kejadian PERTAMA. Contoh: les Sel/Kam/Jum sampai 31 Des 2026 -> repeat={freq:"WEEKLY", days:["TU","TH","FR"], until:"2026-12-31"}.',
     '- Hapus/batalin/"reset" acara -> list_events dulu buat dapet id. Kalau yang mau dihapus LEBIH DARI SATU (atau "semua"), KONFIRMASI dulu ("yakin hapus N acara?") tunggu user iya, baru delete_events. Kalau cuma 1 & jelas, langsung.',
     '- Butuh info terkini/berita/fakta -> panggil search_web.',
     '# Sumber & link (PENTING)',
