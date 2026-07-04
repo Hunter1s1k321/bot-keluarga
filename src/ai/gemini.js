@@ -257,9 +257,46 @@ export async function chat({ text }) {
   }
 }
 
+/** Ambil sumber (judul+url) dari grounding metadata Gemini. */
+function extractSources(res) {
+  const chunks = res.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const seen = new Set();
+  const sources = [];
+  for (const c of chunks) {
+    const uri = c.web?.uri;
+    if (uri && !seen.has(uri)) {
+      seen.add(uri);
+      sources.push({ title: c.web?.title || '', uri });
+    }
+  }
+  return sources;
+}
+
+/** Resolve URL redirect Gemini (vertexaisearch...) jadi URL asli biar preview cakep. */
+async function resolveUrl(uri) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(uri, { method: 'GET', redirect: 'follow', signal: ctrl.signal });
+    clearTimeout(t);
+    return res.url || uri;
+  } catch {
+    return uri;
+  }
+}
+
+/** Resolve maksimal 4 sumber teratas (paralel) jadi link asli. */
+async function resolveSources(sources) {
+  const top = sources.slice(0, 4);
+  const resolved = await Promise.all(
+    top.map(async (s) => ({ title: s.title, uri: await resolveUrl(s.uri) }))
+  );
+  return resolved;
+}
+
 /**
  * Cari info terkini via Google Search grounding (dipakai agent sbagai "alat").
- * @returns {Promise<string>} ringkasan jawaban
+ * @returns {Promise<{result:string, sources:Array<{title,uri}>}>}
  */
 export async function groundedSearch(query) {
   const base = {
@@ -275,11 +312,12 @@ export async function groundedSearch(query) {
       ...base,
       config: { ...base.config, tools: [{ googleSearch: {} }] },
     });
-    return res.text?.trim() || '';
+    const sources = await resolveSources(extractSources(res));
+    return { result: res.text?.trim() || '', sources };
   } catch (e) {
     logger.warn(`groundedSearch gagal (${e.message}), fallback tanpa search`);
     const res = await generateWithRetry(base);
-    return res.text?.trim() || '';
+    return { result: res.text?.trim() || '', sources: [] };
   }
 }
 

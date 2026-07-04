@@ -22,3 +22,6 @@ Thumbs.db
 
 # Claude Code local settings (per-mesin)
 .claude/settings.local.json
+
+# Data keluarga (nomor HP -> panggilan) — PII, jangan di-commit
+people.json

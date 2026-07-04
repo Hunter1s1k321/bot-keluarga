@@ -4,6 +4,7 @@ import { runAgent } from '../ai/agent.js';
 import { isQuotaError } from '../ai/gemini.js';
 import { detectMedia, downloadAsBase64 } from '../utils/media.js';
 import { getHistory, pushTurn, clearHistory } from './conversation.js';
+import { identify, senderNumber } from '../people.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -61,6 +62,17 @@ export async function handleMessage(sock, msg) {
     await reply(sock, jid, msg, '🧹 Oke, konteks obrolan aku lupain ya.');
     return;
   }
+  if (lower === '!whoami') {
+    const num = senderNumber(msg);
+    const p = identify(num);
+    await reply(
+      sock,
+      jid,
+      msg,
+      `Nomor kebaca: ${num || '(gak kebaca)'}\nDikenal sebagai: ${p ? `${p.name} (${p.nick})` : 'BELUM terdaftar'}`
+    );
+    return;
+  }
 
   // --- bot hanya bereaksi kalau DI-TAG (atau di-reply) ---
   const tagged = isBotMentioned(sock, msg) || isReplyToBot(sock, msg);
@@ -93,13 +105,22 @@ export async function handleMessage(sock, msg) {
       if (dl) media.push(dl);
     }
 
-    const history = getHistory(jid);
-    const { reply: answer, toolsUsed } = await runAgent({ text, media, history });
-    logger.info({ toolsUsed }, '[agent selesai]');
+    // Identifikasi pengirim -> panggilan (Vel/pa/ma/vin/zio); prefix ke pesan
+    const person = identify(senderNumber(msg));
+    const nick = person?.nick || msg.pushName || 'kak';
+    const uttered = `[${nick}]: ${text || '(kirim gambar/PDF jadwal)'}`;
 
-    const finalText = answer || 'Hehe, aku bingung mau jawab apa 😅';
+    const history = getHistory(jid);
+    const { reply: answer, toolsUsed } = await runAgent({
+      text: uttered,
+      media,
+      history,
+    });
+    logger.info({ toolsUsed, nick }, '[agent selesai]');
+
+    const finalText = answer || 'hmm bingung aku 😅';
     // simpan ke ingatan (media diwakili teks biar ringan)
-    pushTurn(jid, 'user', text || '[mengirim gambar/PDF]');
+    pushTurn(jid, 'user', uttered);
     pushTurn(jid, 'model', finalText);
 
     await reply(sock, jid, msg, finalText);
