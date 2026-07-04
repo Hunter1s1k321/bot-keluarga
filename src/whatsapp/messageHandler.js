@@ -1,5 +1,5 @@
 import { logger } from '../logger.js';
-import { isBotMentioned, isReplyToBot } from './mentions.js';
+import { detectTrigger } from './trigger.js';
 import { runAgent } from '../ai/agent.js';
 import { isQuotaError } from '../ai/gemini.js';
 import { detectMedia, downloadAsBase64 } from '../utils/media.js';
@@ -74,33 +74,40 @@ export async function handleMessage(sock, msg) {
     return;
   }
 
-  // --- bot hanya bereaksi kalau DI-TAG (atau di-reply) ---
-  const tagged = isBotMentioned(sock, msg) || isReplyToBot(sock, msg);
-  if (!tagged) return;
+  // --- tentukan apakah bot merespons ---
+  // respond via: tag / reply / sebut "claude" (langsung) ATAU pesan yang jelas
+  // minta atur jadwal (requireAction: cuma balas kalau beneran ada aksi calendar)
+  const trigger = detectTrigger(sock, msg, text);
+  if (!trigger.respond) return;
+  const directlyAddressed = !trigger.requireAction;
 
-  logger.info(`[tagged] dari="${sender}" teks="${text}"`);
+  logger.info(
+    `[trigger] dari="${sender}" langsung=${directlyAddressed} teks="${text}"`
+  );
 
   const det = detectMedia(msg);
   if (det?.unsupported) {
-    await reply(
-      sock,
-      jid,
-      msg,
-      '📎 File itu belum bisa kubaca. Kirim foto/gambar jadwal atau PDF ya.'
-    );
+    if (directlyAddressed) {
+      await reply(
+        sock,
+        jid,
+        msg,
+        '📎 File itu belum bisa kubaca. Kirim foto/gambar jadwal atau PDF ya.'
+      );
+    }
     return;
   }
 
   if (!text && !det) {
-    await reply(sock, jid, msg, 'Iya? 🙂 Ada yang bisa aku bantu?');
+    if (directlyAddressed) await reply(sock, jid, msg, 'Iya? 🙂 Ada yang bisa aku bantu?');
     return;
   }
 
   try {
-    // Lampiran -> download + kasih tau lagi diproses (vision agak lama)
+    // Lampiran -> download (+ ack kalau dipanggil langsung, vision agak lama)
     const media = [];
     if (det) {
-      await reply(sock, jid, msg, '⏳ Bentar, lagi kubaca...');
+      if (directlyAddressed) await reply(sock, jid, msg, '⏳ Bentar, lagi kubaca...');
       const dl = await downloadAsBase64(sock, msg);
       if (dl) media.push(dl);
     }
@@ -116,13 +123,20 @@ export async function handleMessage(sock, msg) {
       media,
       history,
     });
-    logger.info({ toolsUsed, nick }, '[agent selesai]');
+    logger.info({ toolsUsed, nick, requireAction: trigger.requireAction }, '[agent selesai]');
+
+    // Auto-trigger (gak dipanggil): cuma bersuara kalau beneran ada aksi calendar,
+    // biar gak nyerobot obrolan yang kebetulan kena heuristik.
+    const mutated =
+      toolsUsed.includes('create_events') || toolsUsed.includes('delete_events');
+    if (trigger.requireAction && !mutated) {
+      logger.info('[auto-trigger] tanpa aksi calendar -> diam');
+      return;
+    }
 
     const finalText = answer || 'hmm bingung aku 😅';
-    // simpan ke ingatan (media diwakili teks biar ringan)
     pushTurn(jid, 'user', uttered);
     pushTurn(jid, 'model', finalText);
-
     await reply(sock, jid, msg, finalText);
   } catch (e) {
     logger.error(e, 'Gagal proses pesan');

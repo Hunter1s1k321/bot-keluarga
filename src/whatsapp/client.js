@@ -35,6 +35,7 @@ export async function startWhatsApp({ onMessage } = {}) {
     printQRInTerminal: false, // QR kita render sendiri (opsi bawaan sudah deprecated)
     syncFullHistory: false, // hemat RAM: jangan sync semua riwayat
     markOnlineOnConnect: false, // biar HP tetap bisa terima notif normal
+    generateHighQualityLinkPreview: true, // thumbnail/preview link (butuh link-preview-js)
     browser: ['BotKeluarga', 'Chrome', '120.0.0'],
   });
 
