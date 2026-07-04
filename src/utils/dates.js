@@ -58,6 +58,16 @@ export function plusOneHour(ymdStr, hhmm) {
   return { date: dt.toISOString().slice(0, 10), time: dt.toISOString().slice(11, 16) };
 }
 
+/** Awal hari WIB dalam ISO, mis. "2026-07-05T00:00:00+07:00". */
+export function dayStartISO(ymdStr) {
+  return `${ymdStr}T00:00:00+07:00`;
+}
+
+/** Akhir hari WIB dalam ISO, mis. "2026-07-05T23:59:59+07:00". */
+export function dayEndISO(ymdStr) {
+  return `${ymdStr}T23:59:59+07:00`;
+}
+
 /** Format tanggal event calendar (untuk balasan ke user), dari Date/ISO. */
 export function formatEventDate(dateInput) {
   const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;

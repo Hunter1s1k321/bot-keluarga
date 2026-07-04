@@ -1,8 +1,24 @@
 import { logger } from '../logger.js';
 import { isBotMentioned, isReplyToBot } from './mentions.js';
-import { extractEvents } from '../ai/gemini.js';
-import { saveExtractedEvent } from '../calendar/calendar.js';
-import { formatEventDate } from '../utils/dates.js';
+import {
+  extractEvents,
+  understand,
+  answerQuery,
+  chat,
+  isQuotaError,
+} from '../ai/gemini.js';
+import {
+  saveExtractedEvent,
+  listEvents,
+  deleteEvent,
+} from '../calendar/calendar.js';
+import {
+  formatEventDate,
+  ymd,
+  addDays,
+  dayStartISO,
+  dayEndISO,
+} from '../utils/dates.js';
 import { detectMedia, downloadAsBase64 } from '../utils/media.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
@@ -19,15 +35,30 @@ export function extractText(msg) {
   );
 }
 
-/** Format konfirmasi setelah event tersimpan ke Calendar. */
+const reply = (sock, jid, msg, text) =>
+  sock.sendMessage(jid, { text }, { quoted: msg });
+
+/** Kapan sebuah event Google -> teks enak dibaca. */
+function whenText(event) {
+  const st = event.start || {};
+  return st.dateTime ? formatEventDate(st.dateTime) : `${st.date} (seharian)`;
+}
+
+/** Daftar event Google -> teks (buat konteks jawaban / listing). */
+function eventsToText(events) {
+  return events
+    .map((e) => {
+      const loc = e.location ? ` (${e.location})` : '';
+      return `- ${e.summary} — ${whenText(e)}${loc}`;
+    })
+    .join('\n');
+}
+
+/** Konfirmasi setelah event tersimpan. */
 function formatSaved(saved) {
   const lines = saved.map((s, i) => {
-    const st = s.event.start || {};
-    const when = st.dateTime
-      ? formatEventDate(st.dateTime)
-      : `${st.date} (seharian)`;
     const loc = s.event.location ? `\n   📍 ${s.event.location}` : '';
-    return `${i + 1}. *${s.summary}*\n   📅 ${when}${loc}`;
+    return `${i + 1}. *${s.summary}*\n   📅 ${whenText(s.event)}${loc}`;
   });
   const head =
     saved.length === 1
@@ -36,12 +67,114 @@ function formatSaved(saved) {
   return `${head}\n\n${lines.join('\n\n')}`;
 }
 
+/** Simpan daftar event hasil ekstrak + balas konfirmasi. */
+async function saveAndConfirm(sock, jid, msg, events) {
+  if (!events.length) {
+    await reply(
+      sock,
+      jid,
+      msg,
+      '🔍 Info acaranya kurang lengkap. Sebutin nama acara + tanggal + jam ya.'
+    );
+    return;
+  }
+  const saved = [];
+  for (const e of events) {
+    try {
+      saved.push(await saveExtractedEvent(e));
+    } catch (err) {
+      logger.error(err, `Gagal simpan event: ${e.title}`);
+    }
+  }
+  if (!saved.length) {
+    await reply(
+      sock,
+      jid,
+      msg,
+      '⚠️ Berhasil baca acaranya tapi gagal simpan ke Calendar. Cek koneksi ya.'
+    );
+    return;
+  }
+  await reply(sock, jid, msg, formatSaved(saved));
+}
+
+/** Filter event Google berdasar nama orang / kata kunci di judul. */
+function matchEvents(events, { person, keyword }) {
+  return events.filter((e) => {
+    const s = (e.summary || '').toLowerCase();
+    if (person && !s.includes(person.toLowerCase())) return false;
+    if (keyword && !s.includes(keyword.toLowerCase())) return false;
+    return true;
+  });
+}
+
+// ---- intent: query jadwal ----
+async function handleQuery(sock, jid, msg, question, route) {
+  const from = route.dateFrom || ymd();
+  const to = route.dateTo || addDays(ymd(), 60);
+  let events = await listEvents(dayStartISO(from), dayEndISO(to));
+  events = matchEvents(events, route);
+  const answer = await answerQuery({
+    question,
+    eventsText: eventsToText(events),
+  });
+  await reply(sock, jid, msg, answer || 'Hmm, aku kurang paham. Coba tanya lagi ya.');
+}
+
+// ---- intent: hapus acara ----
+async function handleDelete(sock, jid, msg, route) {
+  if (!route.person && !route.keyword) {
+    await reply(
+      sock,
+      jid,
+      msg,
+      '🗑️ Mau hapus acara yang mana? Sebutin nama acaranya / orangnya ya.'
+    );
+    return;
+  }
+  const from = route.dateFrom || ymd();
+  const to = route.dateTo || addDays(ymd(), 90);
+  const events = await listEvents(dayStartISO(from), dayEndISO(to));
+  const matches = matchEvents(events, route);
+
+  if (!matches.length) {
+    await reply(sock, jid, msg, '🤔 Gak nemu acara yang cocok buat dihapus.');
+    return;
+  }
+  if (matches.length > 1) {
+    const list = matches
+      .map((e, i) => `${i + 1}. *${e.summary}* — ${whenText(e)}`)
+      .join('\n');
+    await reply(
+      sock,
+      jid,
+      msg,
+      `Ada ${matches.length} acara yang cocok:\n\n${list}\n\nSebutin lebih spesifik ya (tanggal/jam) biar gak salah hapus.`
+    );
+    return;
+  }
+  const target = matches[0];
+  await deleteEvent(target.id);
+  await reply(
+    sock,
+    jid,
+    msg,
+    `🗑️ Udah dibatalin: *${target.summary}* — ${whenText(target)}`
+  );
+}
+
+// ---- intent: chit-chat / berita ----
+async function handleChat(sock, jid, msg, text) {
+  const answer = await chat({ text });
+  await reply(sock, jid, msg, answer || 'Hehe, aku bingung mau jawab apa 😅');
+}
+
 /**
- * Handler pesan masuk.
- * TAHAP 3: bot merespons kalau DI-TAG (atau di-reply). Untuk sekarang, kalau
- * di-tag + ada teks acara -> tampilkan PREVIEW hasil ekstrak Gemini.
- * (Belum tulis ke Calendar; itu Step 4.)
- * Command uji lama tetap ada: ping / !jid.
+ * Handler utama.
+ * - command uji: ping / !jid
+ * - kalau bot DI-TAG:
+ *     lampiran gambar/PDF -> ekstrak & simpan acara
+ *     teks -> router intent (add / query / delete / chat)
  */
 export async function handleMessage(sock, msg) {
   if (msg.key.fromMe) return;
@@ -55,7 +188,7 @@ export async function handleMessage(sock, msg) {
 
   // --- command uji (tanpa perlu tag) ---
   if (lower === 'ping') {
-    await sock.sendMessage(jid, { text: 'pong 🏓' }, { quoted: msg });
+    await reply(sock, jid, msg, 'pong 🏓');
     return;
   }
   if (lower === '!jid') {
@@ -63,93 +196,79 @@ export async function handleMessage(sock, msg) {
     if (isGroup) {
       try {
         const meta = await sock.groupMetadata(jid);
-        info = `Grup: *${meta.subject}*\nJID: ${jid}\n\nCopy JID ke FAMILY_GROUP_JID di .env`;
+        info = `Grup: *${meta.subject}*\nJID: ${jid}`;
       } catch (e) {
         logger.warn(e, 'Gagal ambil metadata grup');
       }
     }
-    await sock.sendMessage(jid, { text: info }, { quoted: msg });
+    await reply(sock, jid, msg, info);
     return;
   }
 
-  // --- bot hanya bereaksi kalau DI-TAG (atau di-reply) di grup ---
+  // --- bot hanya bereaksi kalau DI-TAG (atau di-reply) ---
   const tagged = isBotMentioned(sock, msg) || isReplyToBot(sock, msg);
   if (!tagged) return;
 
-  logger.info(`[tagged] dari="${sender}" jid=${jid} teks="${text}"`);
+  logger.info(`[tagged] dari="${sender}" teks="${text}"`);
 
-  // Deteksi lampiran (gambar/PDF jadwal)
   const det = detectMedia(msg);
   if (det?.unsupported) {
-    await sock.sendMessage(
+    await reply(
+      sock,
       jid,
-      { text: '📎 File itu belum bisa kubaca. Kirim foto/gambar jadwal atau PDF ya.' },
-      { quoted: msg }
+      msg,
+      '📎 File itu belum bisa kubaca. Kirim foto/gambar jadwal atau PDF ya.'
     );
     return;
   }
 
   if (!text && !det) {
-    await sock.sendMessage(
+    await reply(
+      sock,
       jid,
-      { text: 'Iya? Tag aku sambil kasih info acaranya (teks / foto jadwal / PDF) ya 🙂' },
-      { quoted: msg }
+      msg,
+      'Iya? Tag aku sambil kasih info acaranya (teks / foto jadwal / PDF) ya 🙂'
     );
     return;
   }
 
   try {
-    // Kalau ada lampiran, kasih tau lagi diproses (vision agak lama)
-    const media = [];
+    // Lampiran (gambar/PDF) -> selalu dianggap "tambah acara"
     if (det) {
-      await sock.sendMessage(
-        jid,
-        { text: '⏳ Lagi baca jadwalnya, bentar ya...' },
-        { quoted: msg }
-      );
+      await reply(sock, jid, msg, '⏳ Lagi baca jadwalnya, bentar ya...');
+      const media = [];
       const dl = await downloadAsBase64(sock, msg);
       if (dl) media.push(dl);
-    }
-
-    const events = await extractEvents({ text, media });
-    logger.info({ count: events.length }, '[ekstrak] hasil Gemini');
-
-    if (!events.length) {
-      await sock.sendMessage(
-        jid,
-        {
-          text: '🔍 Gak nemu detail acara di pesan itu. Coba sebutin nama acara + tanggal + jam ya.',
-        },
-        { quoted: msg }
-      );
+      const events = await extractEvents({ text, media });
+      logger.info({ count: events.length }, '[ekstrak media]');
+      await saveAndConfirm(sock, jid, msg, events);
       return;
     }
 
-    // Simpan semua event ke Calendar
-    const saved = [];
-    for (const e of events) {
-      try {
-        saved.push(await saveExtractedEvent(e));
-      } catch (err) {
-        logger.error(err, `Gagal simpan event: ${e.title}`);
-      }
-    }
+    // Teks -> router intent
+    const route = await understand({ text });
+    logger.info({ intent: route.intent }, '[router]');
 
-    if (!saved.length) {
-      await sock.sendMessage(
-        jid,
-        { text: '⚠️ Berhasil baca acaranya tapi gagal simpan ke Calendar. Cek koneksi ya.' },
-        { quoted: msg }
-      );
-      return;
+    switch (route.intent) {
+      case 'add':
+        await saveAndConfirm(sock, jid, msg, route.events || []);
+        break;
+      case 'query':
+        await handleQuery(sock, jid, msg, text, route);
+        break;
+      case 'delete':
+        await handleDelete(sock, jid, msg, route);
+        break;
+      case 'chat':
+      default:
+        await handleChat(sock, jid, msg, text);
+        break;
     }
-    await sock.sendMessage(jid, { text: formatSaved(saved) }, { quoted: msg });
   } catch (e) {
-    logger.error(e, 'Gagal proses acara');
-    await sock.sendMessage(
-      jid,
-      { text: '⚠️ Waduh gagal proses. Cek API key / koneksi ya.' },
-      { quoted: msg }
-    );
+    logger.error(e, 'Gagal proses pesan');
+    const text = isQuotaError(e)
+      ? '😴 Lagi kena batas kuota Gemini (limit harian). Coba lagi nanti ya 🙏'
+      : '⚠️ Waduh gagal proses. Cek koneksi/API ya.';
+    await reply(sock, jid, msg, text);
   }
 }
