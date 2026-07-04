@@ -29,6 +29,11 @@ export function identify(number) {
   return byNumber.get(normalizeNumber(number)) || null;
 }
 
+/** Daftar anggota (nama referensi + panggilan) buat konteks agent. */
+export function roster() {
+  return people.map((p) => ({ name: p.name, nick: p.nick }));
+}
+
 /**
  * Ambil nomor pengirim dari pesan WA (grup / japri).
  * Coba beberapa field karena WA baru kadang pakai LID.

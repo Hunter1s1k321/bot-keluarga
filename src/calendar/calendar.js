@@ -116,7 +116,10 @@ export async function listEvents(timeMin, timeMax, q) {
 export async function saveExtractedEvent(e) {
   const person = (e.person || '').trim();
   const title = (e.title || 'Acara').trim();
-  const summary = person ? `${person} - ${title}` : title;
+  // Pengaman: jangan dobel prefix kalau title udah keburu diawali nama orang.
+  const alreadyPrefixed =
+    person && title.toLowerCase().startsWith(person.toLowerCase());
+  const summary = person && !alreadyPrefixed ? `${person} - ${title}` : title;
 
   const base = {
     summary,

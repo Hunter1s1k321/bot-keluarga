@@ -15,6 +15,12 @@ import {
   dayEndISO,
   formatEventDate,
 } from '../utils/dates.js';
+import { roster } from '../people.js';
+
+// Daftar keluarga: "Marvel (panggilan: Vel)"
+const ROSTER_TEXT = roster()
+  .map((p) => `- ${p.name} (panggilan akrab: ${p.nick})`)
+  .join('\n');
 
 // Kalau '1', operasi HAPUS jadi no-op (buat testing biar gak nyentuh calendar asli).
 const DRY_RUN = process.env.AGENT_DRY_RUN === '1';
@@ -62,8 +68,16 @@ const functionDeclarations = [
           items: {
             type: Type.OBJECT,
             properties: {
-              person: { type: Type.STRING, description: 'Nama orang (buat prefix judul).' },
-              title: { type: Type.STRING, description: 'Nama acara.' },
+              person: {
+                type: Type.STRING,
+                description:
+                  'Nama orang, pakai NAMA bukan panggilan (mis. "Marvel" bukan "Vel"). Jadi prefix judul.',
+              },
+              title: {
+                type: Type.STRING,
+                description:
+                  'Nama acara SAJA, TANPA nama orang (mis. "Misdinar", "Latihan Basket"). Sistem otomatis nambahin prefix nama.',
+              },
               date: { type: Type.STRING, description: 'YYYY-MM-DD (WIB).' },
               startTime: { type: Type.STRING, description: 'HH:MM, kosong kalau tak ada.' },
               endTime: { type: Type.STRING, description: 'HH:MM, kosong kalau tak ada.' },
@@ -116,12 +130,18 @@ function agentInstruction(mode = 'direct') {
     '- Informal tapi sopan. JANGAN lebay/kelewat semangat ("Wah, ini dia infonya!!", "Sip banget!!"). Santai aja, secukupnya.',
     '- Chat pendek: gaya WA — gak perlu huruf kapital di awal & gak perlu titik di akhir kalimat. Kayak orang ngetik biasa.',
     '- Emoji seperlunya aja, jangan tiap kalimat.',
+    '# Anggota keluarga (NAMA vs PANGGILAN — PENTING)',
+    ROSTER_TEXT,
+    '- Panggilan & nama = ORANG YANG SAMA (Vel = Marvel, ma = Mama, dst). "Vel besok misdinar" = "Marvel besok misdinar" = acara buat Marvel.',
+    '- Buat NYAPA / ngomong LANGSUNG ke orangnya (orang kedua): pakai panggilan akrab (Vel/pa/ma/vin/zio) ATAU "kamu". Contoh: "mau tak tambahin, Vel?".',
+    '- Buat NYEBUT orang dalam PERNYATAAN (orang ketiga) & buat JUDUL ACARA: pakai NAMA (Marvel/Mama/...), BUKAN panggilan. Judul acara: "Marvel - Misdinar". Statement: "acaranya Marvel jam 6".',
+    '- Kalau lagi ngomong ke si pembicara & nyebut dia sendiri, mending pakai "kamu": "di kalender kamu udah ada misdinar jam 6".',
     '# Identitas pembicara',
-    '- Tiap pesan user diawali label [nama]: (mis. "[ma]: ..."), itu penanda INTERNAL siapa yang ngomong. Pakai buat nyapa dia (Vel/pa/ma/vin/zio).',
-    '- DILARANG KERAS menulis atau mengulang label "[nama]:" di jawabanmu. Jangan echo pesan user. Langsung jawab isinya aja. Jangan masukin label ke judul acara.',
+    '- Tiap pesan user diawali label [nama]: (mis. "[ma]: ..."), itu penanda INTERNAL siapa yang lagi ngomong (pakai panggilan). Sapa dia sesuai aturan di atas.',
+    '- DILARANG KERAS menulis/mengulang label "[nama]:" di jawabanmu. Jangan echo pesan user. Langsung jawab isinya. Jangan masukin label ke judul acara.',
     '# Tugas (pakai tools)',
     '- ATURAN KERAS: JANGAN pernah bilang "udah tak tambahin/catat/hapus" kalau kamu BELUM benar-benar memanggil tool create_events/delete_events. Panggil tool-nya DULU, baru konfirmasi hasilnya. Dilarang ngaku-ngaku.',
-    '- Judul acara SELALU prefix nama orang: "Marvel - Misdinar".',
+    '- Judul acara akhirnya jadi "Nama - Acara" (mis. "Marvel - Misdinar"). Tapi di tool create_events isi TERPISAH: person="Marvel", title="Misdinar" (tanpa nama). Sistem yang gabungin. JANGAN masukin nama orang ke field title.',
     '- Pertanyaan jadwal -> panggil list_events (rentang tanggal yang pas), jawab natural. JANGAN ngarang acara.',
     '- Nambah acara (teks/gambar/PDF) -> pahami detail -> create_events. Cek dulu pakai list_events biar gak dobel.',
     '- Hapus/batalin/"reset" acara -> list_events dulu buat dapet id. Kalau yang mau dihapus LEBIH DARI SATU (atau "semua"), KONFIRMASI dulu ("yakin hapus N acara?") tunggu user iya, baru delete_events. Kalau cuma 1 & jelas, langsung.',
