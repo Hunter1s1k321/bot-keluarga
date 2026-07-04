@@ -3,6 +3,7 @@ import { isBotMentioned, isReplyToBot } from './mentions.js';
 import { extractEvents } from '../ai/gemini.js';
 import { saveExtractedEvent } from '../calendar/calendar.js';
 import { formatEventDate } from '../utils/dates.js';
+import { detectMedia, downloadAsBase64 } from '../utils/media.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -77,19 +78,41 @@ export async function handleMessage(sock, msg) {
 
   logger.info(`[tagged] dari="${sender}" jid=${jid} teks="${text}"`);
 
-  if (!text) {
+  // Deteksi lampiran (gambar/PDF jadwal)
+  const det = detectMedia(msg);
+  if (det?.unsupported) {
     await sock.sendMessage(
       jid,
-      { text: 'Iya? Tag aku sambil kasih info acaranya ya 🙂' },
+      { text: '📎 File itu belum bisa kubaca. Kirim foto/gambar jadwal atau PDF ya.' },
       { quoted: msg }
     );
     return;
   }
 
-  // Ekstrak acara dari teks (vision gambar/PDF menyusul di Step 5)
+  if (!text && !det) {
+    await sock.sendMessage(
+      jid,
+      { text: 'Iya? Tag aku sambil kasih info acaranya (teks / foto jadwal / PDF) ya 🙂' },
+      { quoted: msg }
+    );
+    return;
+  }
+
   try {
-    const events = await extractEvents({ text });
-    logger.info({ events }, '[ekstrak] hasil Gemini');
+    // Kalau ada lampiran, kasih tau lagi diproses (vision agak lama)
+    const media = [];
+    if (det) {
+      await sock.sendMessage(
+        jid,
+        { text: '⏳ Lagi baca jadwalnya, bentar ya...' },
+        { quoted: msg }
+      );
+      const dl = await downloadAsBase64(sock, msg);
+      if (dl) media.push(dl);
+    }
+
+    const events = await extractEvents({ text, media });
+    logger.info({ count: events.length }, '[ekstrak] hasil Gemini');
 
     if (!events.length) {
       await sock.sendMessage(

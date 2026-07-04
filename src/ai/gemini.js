@@ -81,7 +81,8 @@ function extractionSystemInstruction() {
     '- Ubah tanggal relatif ("besok", "Sabtu depan", "lusa") jadi tanggal absolut YYYY-MM-DD berdasarkan "hari ini" di atas.',
     '- Kalau tahun tidak disebut, pakai kejadian terdekat ke depan (jangan tanggal yang sudah lewat).',
     '- Jam pakai 24 jam "HH:MM" (WIB). Kalau tidak ada jam, set allDay=true dan kosongkan startTime/endTime.',
-    '- "person" = nama orang yang terlibat untuk prefix judul (mis. "Marvel"). Kalau jadwal berisi banyak nama/baris, buat satu event per baris.',
+    '- "person" = nama orang yang terlibat untuk prefix judul (mis. "Marvel"). Kalau jadwal (gambar/PDF) berisi banyak nama/baris, buat satu event per baris.',
+    '- Kalau pesan pengguna menyebut nama tertentu yang diminta (mis. "ambil punya Marvel & Zio aja"), ekstrak HANYA baris yang cocok nama itu.',
     '- Kalau tidak ada acara yang bisa diekstrak sama sekali, kembalikan events: [] (array kosong).',
     '- Jangan mengarang detail yang tidak ada di sumber.',
   ].join('\n');
