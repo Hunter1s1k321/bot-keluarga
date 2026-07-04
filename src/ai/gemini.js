@@ -181,7 +181,9 @@ function routerInstruction() {
     '- "chat": obrolan umum / pertanyaan lain di luar jadwal (berita, rekomendasi, tanya fakta, basa-basi).',
     'Untuk query & delete, tentukan rentang tanggal dateFrom..dateTo berbasis "hari ini":',
     '  "hari ini"=hari ini; "besok"=besok..besok; "minggu ini"=Senin..Minggu minggu ini; "bulan ini"=tanggal 1..akhir bulan ini. Kalau tidak jelas, kosongkan.',
-    '- person: nama orang kalau disebut. keyword: kata kunci nama acara kalau ada.',
+    '- WAJIB isi "person" kalau pesan menyebut nama orang (mis. "acara Marvel..." -> person="Marvel"), untuk query MAUPUN delete.',
+    '- keyword: kata kunci nama acara SPESIFIK kalau ada (mis. "latihan basket", "misdinar").',
+    '- JANGAN jadikan kata generik sebagai keyword (mis. "acara", "jadwal", "kegiatan", "acara keluarga") — kosongkan keyword kalau pertanyaannya umum (minta semua acara).',
     '- events hanya diisi untuk intent=add. Jangan mengarang detail yang tidak disebut.',
   ].join('\n');
 }
