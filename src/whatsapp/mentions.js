@@ -1,10 +1,22 @@
 /** Utility deteksi mention / info pesan WhatsApp. */
 
-/** JID bot dalam bentuk normal "nomor@s.whatsapp.net" (tanpa :device). */
-export function botJid(sock) {
-  const id = sock.user?.id || '';
-  const num = id.split(':')[0].split('@')[0];
-  return `${num}@s.whatsapp.net`;
+/** Buang suffix device (":1") dari sebuah JID. */
+function stripDevice(jid = '') {
+  const [user, domain] = jid.split('@');
+  return `${user.split(':')[0]}@${domain || 's.whatsapp.net'}`;
+}
+
+/**
+ * Semua kemungkinan JID bot: nomor biasa (@s.whatsapp.net) DAN LID (@lid).
+ * WhatsApp baru kadang pakai LID untuk mention di grup.
+ */
+export function botJids(sock) {
+  const out = new Set();
+  const id = sock.user?.id;
+  if (id) out.add(stripDevice(id)); // 6285...@s.whatsapp.net
+  const lid = sock.user?.lid;
+  if (lid) out.add(stripDevice(lid)); // xxxx@lid
+  return out;
 }
 
 /** contextInfo dari berbagai tipe pesan. */
@@ -19,18 +31,20 @@ function contextInfo(msg) {
   );
 }
 
-/** Daftar JID yang di-mention di pesan. */
+/** Daftar JID yang di-mention di pesan (device-stripped). */
 export function mentionedJids(msg) {
-  return contextInfo(msg)?.mentionedJid || [];
+  return (contextInfo(msg)?.mentionedJid || []).map(stripDevice);
 }
 
 /** True kalau bot di-tag di pesan ini. */
 export function isBotMentioned(sock, msg) {
-  return mentionedJids(msg).includes(botJid(sock));
+  const bots = botJids(sock);
+  return mentionedJids(msg).some((j) => bots.has(j));
 }
 
 /** True kalau pesan ini me-reply (quote) pesan si bot. */
 export function isReplyToBot(sock, msg) {
   const ci = contextInfo(msg);
-  return !!ci?.participant && ci.participant === botJid(sock);
+  if (!ci?.participant) return false;
+  return botJids(sock).has(stripDevice(ci.participant));
 }
