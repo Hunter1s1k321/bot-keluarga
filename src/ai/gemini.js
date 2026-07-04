@@ -9,7 +9,7 @@ const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
  * Panggil Gemini dengan retry HANYA untuk error jaringan/transient.
  * PENTING: jangan retry 429 (kuota) — buat limit harian percuma & malah boros.
  */
-async function generateWithRetry(params, tries = 3) {
+export async function generateWithRetry(params, tries = 3) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try {
@@ -254,6 +254,32 @@ export async function chat({ text }) {
     logger.warn(`chat grounding gagal (${e.message}), fallback tanpa search`);
     const res = await generateWithRetry(base);
     return res.text?.trim();
+  }
+}
+
+/**
+ * Cari info terkini via Google Search grounding (dipakai agent sbagai "alat").
+ * @returns {Promise<string>} ringkasan jawaban
+ */
+export async function groundedSearch(query) {
+  const base = {
+    model: config.gemini.model,
+    contents: query,
+    config: {
+      systemInstruction: `Jawab ringkas & faktual (bahasa Indonesia) berdasar hasil pencarian. Lokasi konteks: ${config.locationName}. Kalau info spesifik tak ketemu, bilang apa adanya.`,
+      temperature: 0.4,
+    },
+  };
+  try {
+    const res = await generateWithRetry({
+      ...base,
+      config: { ...base.config, tools: [{ googleSearch: {} }] },
+    });
+    return res.text?.trim() || '';
+  } catch (e) {
+    logger.warn(`groundedSearch gagal (${e.message}), fallback tanpa search`);
+    const res = await generateWithRetry(base);
+    return res.text?.trim() || '';
   }
 }
 
