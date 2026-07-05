@@ -25,3 +25,6 @@ Thumbs.db
 
 # Data keluarga (nomor HP -> panggilan) — PII, jangan di-commit
 people.json
+
+# Wrapper Windows Service (dibuat node-windows per-mesin, binary)
+src/daemon/
