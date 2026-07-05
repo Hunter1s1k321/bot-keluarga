@@ -122,7 +122,7 @@ export async function handleMessage(sock, msg) {
     }
 
     const history = getHistory(jid);
-    const { reply: answer, toolsUsed } = await runAgent({
+    const { reply: answer, toolsUsed, attachments } = await runAgent({
       text: uttered,
       media,
       history,
@@ -144,6 +144,14 @@ export async function handleMessage(sock, msg) {
     pushTurn(jid, 'user', uttered);
     pushTurn(jid, 'model', out);
     await reply(sock, jid, msg, out);
+
+    // Kirim lampiran (mis. foto tempat dari find_place) setelah teks
+    for (const att of attachments || []) {
+      if (att.photo) {
+        const { text: cap, mentions } = applyMentions(att.caption || '');
+        await sock.sendMessage(jid, { image: att.photo, caption: cap, mentions });
+      }
+    }
   } catch (e) {
     logger.error(e, 'Gagal proses pesan');
     if (directlyAddressed) {

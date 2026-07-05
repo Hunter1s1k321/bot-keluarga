@@ -2,6 +2,7 @@ import { Type } from '@google/genai';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { generateWithRetry, groundedSearch } from './gemini.js';
+import { searchPlace, fetchPlacePhoto } from '../maps.js';
 import {
   listEvents,
   saveExtractedEvent,
@@ -169,6 +170,21 @@ const functionDeclarations = [
       required: ['query'],
     },
   },
+  {
+    name: 'find_place',
+    description:
+      'Cari info tempat/kuliner/toko SPESIFIK: nama, alamat, link Maps, + FOTO tempatnya (foto otomatis dikirim ke chat). Pakai ini tiap user minta rekomendasi/nyari tempat makan/kuliner/toko/lokasi.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: 'Nama/jenis tempat + area, mis. "bebek goreng Harapan Indah".',
+        },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 function agentInstruction(mode = 'direct', speaker = '') {
@@ -213,7 +229,8 @@ function agentInstruction(mode = 'direct', speaker = '') {
     '- Butuh info terkini/berita/fakta -> panggil search_web.',
     '# Sumber & link (PENTING)',
     '- Setelah pakai search_web, SELALU cantumin link sumbernya (dari field "sources") di jawaban, biar bisa dicek. Cukup 1-3 link paling relevan.',
-    '- Kalau ditanya tempat/kuliner/alamat/toko, kasih link Google Maps: https://www.google.com/maps/search/?api=1&query=NAMA+TEMPAT+HARAPAN+INDAH (spasi jadi +). Buat toko/bisnis baru yang mungkin belum ada beritanya, arahin ke Maps.',
+    '- Kalau ditanya/minta rekomendasi TEMPAT/KULINER/toko/lokasi: pakai tool find_place (dia otomatis kirim FOTO tempat + alamat + link Maps ke chat). JANGAN cuma kasih link /maps/search/ generik. Di teks-mu kasih komentar singkat aja ("nih coba ini, enak katanya") — alamat/link/foto udah dikirim otomatis, gak usah diulang.',
+    '- Kalau find_place gak nemu (found:false), baru deh saranin dia cari manual / kasih link search biasa.',
     '# Lain-lain',
     '- Inget konteks obrolan sebelumnya (user jawab "iya"/"semuanya" = lanjutan pertanyaanmu barusan).'
   );
@@ -235,7 +252,7 @@ function agentInstruction(mode = 'direct', speaker = '') {
   return lines.join('\n');
 }
 
-async function executeTool(name, args) {
+async function executeTool(name, args, attachments) {
   logger.info({ tool: name, args }, '[agent tool]');
   try {
     switch (name) {
@@ -305,6 +322,30 @@ async function executeTool(name, args) {
         const { result, sources } = await groundedSearch(args.query || '');
         return { result, sources };
       }
+      case 'find_place': {
+        const place = await searchPlace(args.query || '');
+        if (!place) {
+          return { found: false, note: 'gak nemu di Maps' };
+        }
+        let photoTerkirim = false;
+        if (place.photoName) {
+          const photo = await fetchPlacePhoto(place.photoName);
+          if (photo) {
+            attachments.push({
+              photo,
+              caption: `📍 *${place.name}*\n${place.address}\n${place.mapsUri}`,
+            });
+            photoTerkirim = true;
+          }
+        }
+        return {
+          found: true,
+          name: place.name,
+          address: place.address,
+          mapsUri: place.mapsUri,
+          photoTerkirim,
+        };
+      }
       default:
         return { error: `tool tidak dikenal: ${name}` };
     }
@@ -332,6 +373,7 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
 
   const contents = [...history, { role: 'user', parts: userParts }];
   const toolsUsed = [];
+  const attachments = []; // gambar (mis. foto tempat) yang mau dikirim ke chat
 
   for (let i = 0; i < 6; i++) {
     const res = await generateWithRetry({
@@ -346,7 +388,7 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
 
     const calls = res.functionCalls || [];
     if (calls.length === 0) {
-      return { reply: res.text?.trim() || '', toolsUsed };
+      return { reply: res.text?.trim() || '', toolsUsed, attachments };
     }
 
     // simpan giliran model (yang berisi functionCall) ke konteks
@@ -357,7 +399,7 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
     const responseParts = [];
     for (const call of calls) {
       toolsUsed.push(call.name);
-      const result = await executeTool(call.name, call.args || {});
+      const result = await executeTool(call.name, call.args || {}, attachments);
       responseParts.push({
         functionResponse: { name: call.name, response: result },
       });
@@ -368,5 +410,6 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
   return {
     reply: 'Hmm, kepanjangan mikirnya 😅 coba ulang perintahnya ya.',
     toolsUsed,
+    attachments,
   };
 }
