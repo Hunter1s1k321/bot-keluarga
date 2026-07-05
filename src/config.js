@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -6,6 +6,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Root project (satu level di atas /src)
 export const ROOT = path.resolve(__dirname, '..');
+
+// Load .env dari path ABSOLUT (biar tetap kebaca walau jalan sbg service /
+// cwd beda). Kalau pakai 'dotenv/config' dia baca dari cwd -> bisa gagal.
+dotenv.config({ path: path.join(ROOT, '.env') });
 
 export const config = {
   gemini: {
