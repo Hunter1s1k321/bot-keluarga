@@ -1,16 +1,39 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
 
+function mapPlace(p, query) {
+  return {
+    name: p.displayName?.text || query,
+    address: p.formattedAddress || '',
+    // buang param tracking (&g_mp=...) biar link bersih, cukup cid
+    mapsUri: (p.googleMapsUri || '').replace(/&g_mp=[^&]*/g, ''),
+    photoName: p.photos?.[0]?.name || null,
+    rating: p.rating || null,
+    ratingCount: p.userRatingCount || 0,
+    reviews: (p.reviews || [])
+      .slice(0, 3)
+      .map((r) => ({
+        author: r.authorAttribution?.displayName || 'Anonim',
+        rating: r.rating || null,
+        text: (r.text?.text || r.originalText?.text || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 220),
+      }))
+      .filter((r) => r.text),
+  };
+}
+
 /**
- * Cari tempat via Places API (New) -> dapet link Maps tempat SPESIFIK
- * (yang bikin preview kaya: nama + foto di WhatsApp).
- * Butuh MAPS_API_KEY. Kalau gak ada / gagal -> null (nanti fallback search link).
- * @returns {Promise<{name:string, address:string, mapsUri:string}|null>}
+ * Cari beberapa tempat via Places API (New). Ada fallback kalau query kelewat
+ * spesifik (mis. "bebek goreng X" -> retry "tempat makan bebek X").
+ * @returns {Promise<Array>} daftar tempat (bisa kosong)
  */
-export async function searchPlace(query) {
+export async function searchPlaces(query, maxResults = 5) {
   const key = config.maps.apiKey;
-  if (!key) return null;
-  try {
+  if (!key || !query) return [];
+
+  async function call(q) {
     const res = await fetch(
       'https://places.googleapis.com/v1/places:searchText',
       {
@@ -21,38 +44,33 @@ export async function searchPlace(query) {
           'X-Goog-FieldMask':
             'places.displayName,places.formattedAddress,places.googleMapsUri,places.photos,places.rating,places.userRatingCount,places.reviews',
         },
-        body: JSON.stringify({
-          textQuery: query,
-          languageCode: 'id',
-          maxResultCount: 1,
-        }),
+        body: JSON.stringify({ textQuery: q, languageCode: 'id', maxResultCount: maxResults }),
       }
     );
     if (!res.ok) {
-      logger.warn(`Places API status ${res.status} (cek key / enable Places API)`);
-      return null;
+      logger.warn(`Places API status ${res.status}`);
+      return [];
     }
     const j = await res.json();
-    const p = j.places?.[0];
-    if (!p?.googleMapsUri) return null;
-    return {
-      name: p.displayName?.text || query,
-      address: p.formattedAddress || '',
-      // buang param tracking (&g_mp=...) biar link bersih, cukup cid
-      mapsUri: p.googleMapsUri.replace(/&g_mp=[^&]*/g, ''),
-      photoName: p.photos?.[0]?.name || null,
-      rating: p.rating || null,
-      ratingCount: p.userRatingCount || 0,
-      reviews: (p.reviews || []).slice(0, 3).map((r) => ({
-        author: r.authorAttribution?.displayName || 'Anonim',
-        rating: r.rating || null,
-        text: (r.text?.text || r.originalText?.text || '').replace(/\s+/g, ' ').trim().slice(0, 220),
-      })).filter((r) => r.text),
-    };
+    return (j.places || []).filter((p) => p.googleMapsUri).map((p) => mapPlace(p, q));
+  }
+
+  try {
+    let places = await call(query);
+    // fallback: query terlalu spesifik -> lebih luas
+    if (!places.length && !/^tempat makan/i.test(query)) {
+      places = await call(`tempat makan ${query}`);
+    }
+    return places;
   } catch (e) {
     logger.warn(e, 'Places API gagal');
-    return null;
+    return [];
   }
+}
+
+/** Cari 1 tempat (buat kuliner info pagi). */
+export async function searchPlace(query) {
+  return (await searchPlaces(query, 1))[0] || null;
 }
 
 /**

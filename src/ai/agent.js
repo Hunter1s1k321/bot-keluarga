@@ -2,7 +2,7 @@ import { Type } from '@google/genai';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { generateWithRetry, groundedSearch } from './gemini.js';
-import { searchPlace, fetchPlacePhoto } from '../maps.js';
+import { searchPlaces, fetchPlacePhoto } from '../maps.js';
 import {
   listEvents,
   saveExtractedEvent,
@@ -229,10 +229,12 @@ function agentInstruction(mode = 'direct', speaker = '') {
     '- Butuh info terkini/berita/fakta -> panggil search_web.',
     '# Sumber & link (PENTING)',
     '- Setelah pakai search_web, SELALU cantumin link sumbernya (dari field "sources") di jawaban, biar bisa dicek. Cukup 1-3 link paling relevan.',
-    '- Kalau ditanya/minta rekomendasi TEMPAT/KULINER/toko/lokasi: pakai tool find_place (otomatis kirim FOTO + alamat + link Maps). JANGAN kasih link /maps/search/ generik. Di teks kasih komentar singkat aja; alamat/link/foto udah dikirim otomatis, gak usah diulang.',
-    '- ANTI-NGARANG: find_place ngasih rating & review ASLI. Kalau bilang tempat "enak/bagus/rame", DASARIN ke rating/review itu (mis. "ratingnya 4.4 dari 200-an review, kayaknya oke"). JANGAN ngaku "katanya enak" kalau gak ada datanya. Kalau gak ada rating, bilang apa adanya ("belum banyak review sih").',
-    '- Kalau user minta "review"/"kata orang": kasih ringkasan review ASLI dari find_place (kutip 1-2 review + rating). Jangan bilang bingung — datanya ada di hasil find_place.',
-    '- Kalau find_place gak nemu (found:false), baru saranin cari manual / kasih link search biasa.',
+    '- Rekomendasi TEMPAT/KULINER/toko/lokasi: pakai find_place (otomatis kirim FOTO opsi teratas + alamat + link Maps). JANGAN kasih link /maps/search/ generik. Teks-mu singkat aja; alamat/link/foto udah otomatis.',
+    '- QUERY find_place harus LUAS, jangan kelewat spesifik. Contoh BENER: "tempat makan bebek Harapan Indah". Contoh SALAH (sering 0 hasil): "bebek goreng harapan indah". Pola: "tempat makan [jenis] di [area]".',
+    '- find_place balikin BEBERAPA opsi (places[], bisa 5). Pas rekomendasi, SEBUTIN 2-3 opsi sekaligus (nama + rating), JANGAN cuma 1. Contoh: "ada Bebek Setan (4.4), sama Bebek Kaleyo (4.6, paling rame)". Foto opsi teratas otomatis kekirim.',
+    '- Kalau user minta "lainnya/selain X": sebutin opsi LAIN dari places[] hasil find_place SEBELUMNYA (masih ada di konteks obrolan) — JANGAN search query yang sama (hasil #1-nya bakal sama lagi). Cuma kalau butuh KATEGORI beda baru search ulang.',
+    '- ANTI-NGARANG: pakai rating & review ASLI (dasarin "enak/rame" ke rating). Kalau diminta review, kutip review asli dari topReviews. Jangan bilang bingung.',
+    '- Kalau bener-bener 0 hasil (found:false), coba SEKALI lagi dgn kata kunci lebih umum sebelum nyerah. Jangan buru-buru "aneh banget, cari manual".',
     '# Lain-lain',
     '- Inget konteks obrolan sebelumnya (user jawab "iya"/"semuanya" = lanjutan pertanyaanmu barusan).'
   );
@@ -325,36 +327,39 @@ async function executeTool(name, args, attachments) {
         return { result, sources };
       }
       case 'find_place': {
-        const place = await searchPlace(args.query || '');
-        if (!place) {
-          return { found: false, note: 'gak nemu di Maps' };
+        const places = await searchPlaces(args.query || '', 5);
+        if (!places.length) {
+          return { found: false, note: 'gak nemu di Maps, saranin cari manual / ganti kata kunci' };
         }
-        const ratingStr = place.rating
-          ? `⭐ ${place.rating} (${place.ratingCount} review)`
+        const top = places[0];
+        const ratingStr = top.rating
+          ? `⭐ ${top.rating} (${top.ratingCount} review)`
           : '';
-        let photoTerkirim = false;
-        if (place.photoName) {
-          const photo = await fetchPlacePhoto(place.photoName);
+        // foto opsi TERATAS aja (biar gak spam)
+        if (top.photoName) {
+          const photo = await fetchPlacePhoto(top.photoName);
           if (photo) {
             attachments.push({
               photo,
               caption:
-                `📍 *${place.name}*` +
+                `📍 *${top.name}*` +
                 (ratingStr ? ` ${ratingStr}` : '') +
-                `\n${place.address}\n${place.mapsUri}`,
+                `\n${top.address}\n${top.mapsUri}`,
             });
-            photoTerkirim = true;
           }
         }
         return {
           found: true,
-          name: place.name,
-          address: place.address,
-          mapsUri: place.mapsUri,
-          rating: place.rating,
-          ratingCount: place.ratingCount,
-          reviews: place.reviews, // review ASLI (author, rating, text)
-          photoTerkirim,
+          // beberapa opsi biar bisa kasih alternatif tanpa search ulang
+          places: places.map((p) => ({
+            name: p.name,
+            rating: p.rating,
+            ratingCount: p.ratingCount,
+            address: p.address,
+            mapsUri: p.mapsUri,
+          })),
+          topReviews: top.reviews, // review asli opsi teratas
+          note: 'Foto yang dikirim = opsi teratas (places[0]).',
         };
       }
       default:
