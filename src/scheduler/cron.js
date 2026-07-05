@@ -53,10 +53,18 @@ export async function buildMorningDigest() {
   );
 }
 
-/** Info pagi (berita + kuliner). Best-effort, gak bikin rekap gagal. */
+/** Race sebuah promise dgn timeout, fallback kalau kelamaan. */
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((res) => setTimeout(() => res(fallback), ms)),
+  ]);
+}
+
+/** Info pagi (berita + kuliner). Best-effort + timeout, gak bikin rekap hang/gagal. */
 async function buildDailyInfo() {
   try {
-    const info = await morningInfo();
+    const info = await withTimeout(morningInfo(), 25000, '');
     return info ? `\n\n———\n${info}` : '';
   } catch (e) {
     logger.warn(e, '[cron] info pagi gagal (skip)');

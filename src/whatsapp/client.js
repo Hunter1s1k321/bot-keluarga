@@ -68,6 +68,7 @@ export async function startWhatsApp({ onMessage } = {}) {
   });
 
   sock.ev.on('messages.upsert', async (ev) => {
+    logger.info(`[upsert] type=${ev.type} count=${ev.messages?.length || 0}`);
     // 'notify' = pesan baru real-time (bukan sync riwayat lama)
     if (ev.type !== 'notify') return;
     for (const msg of ev.messages) {
