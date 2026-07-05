@@ -21,7 +21,7 @@ export function getSock() {
  * @param {object} opts
  * @param {(sock, msg)=>Promise<void>} opts.onMessage callback tiap pesan masuk
  */
-export async function startWhatsApp({ onMessage } = {}) {
+export async function startWhatsApp({ onMessage, onReady } = {}) {
   const { state, saveCreds } = await useMultiFileAuthState(
     config.whatsapp.authDir
   );
@@ -51,6 +51,13 @@ export async function startWhatsApp({ onMessage } = {}) {
 
     if (connection === 'open') {
       logger.info(`✅ Tersambung ke WhatsApp sebagai ${sock.user?.id}`);
+      if (onReady) {
+        try {
+          await onReady(sock);
+        } catch (e) {
+          logger.warn(e, 'onReady error');
+        }
+      }
     }
 
     if (connection === 'close') {

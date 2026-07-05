@@ -6,6 +6,7 @@
  */
 const { execSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 
 const root = path.join(__dirname, '..');
 const run = (cmd) =>
@@ -27,6 +28,18 @@ try {
   if (/package(-lock)?\.json/.test(changed)) {
     log('dependency berubah -> npm install...');
     run('npm install --no-audit --no-fund');
+  }
+
+  // Tulis penanda biar bot ngumumin update di grup pas restart nanti
+  try {
+    const version = require(path.join(root, 'package.json')).version;
+    const subject = run('git log -1 --format=%s');
+    fs.writeFileSync(
+      path.join(root, '.pending-announce'),
+      JSON.stringify({ version, subject })
+    );
+  } catch {
+    /* gak fatal */
   }
 
   try {

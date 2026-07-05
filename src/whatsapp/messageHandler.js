@@ -28,11 +28,13 @@ const reply = (sock, jid, msg, text) => {
   return sock.sendMessage(jid, { text: t, mentions }, { quoted: msg });
 };
 
-/** Buang label internal "[nama]:" yang kadang bocor dari output model. */
+/** Bersihin balasan model: buang label "[nama]:" yg bocor + rapiin bold WA. */
 function cleanReply(text) {
   const lines = (text || '').replace(/\r/g, '').split('\n');
   while (lines.length && /^\s*\[[^\]]{1,25}\]:/.test(lines[0])) lines.shift();
-  return lines.join('\n').trim();
+  // WhatsApp bold pakai *satu* bintang, bukan ** (markdown). Konversi biar gak
+  // muncul pagar dobel "**tes**".
+  return lines.join('\n').replace(/\*\*+/g, '*').trim();
 }
 
 export async function handleMessage(sock, msg) {

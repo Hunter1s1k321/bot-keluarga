@@ -28,3 +28,6 @@ people.json
 
 # Wrapper Windows Service (dibuat node-windows per-mesin, binary)
 src/daemon/
+
+# Penanda update (dibuat auto-update, per-mesin)
+.pending-announce
