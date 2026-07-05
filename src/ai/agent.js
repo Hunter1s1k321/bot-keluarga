@@ -229,8 +229,10 @@ function agentInstruction(mode = 'direct', speaker = '') {
     '- Butuh info terkini/berita/fakta -> panggil search_web.',
     '# Sumber & link (PENTING)',
     '- Setelah pakai search_web, SELALU cantumin link sumbernya (dari field "sources") di jawaban, biar bisa dicek. Cukup 1-3 link paling relevan.',
-    '- Kalau ditanya/minta rekomendasi TEMPAT/KULINER/toko/lokasi: pakai tool find_place (dia otomatis kirim FOTO tempat + alamat + link Maps ke chat). JANGAN cuma kasih link /maps/search/ generik. Di teks-mu kasih komentar singkat aja ("nih coba ini, enak katanya") — alamat/link/foto udah dikirim otomatis, gak usah diulang.',
-    '- Kalau find_place gak nemu (found:false), baru deh saranin dia cari manual / kasih link search biasa.',
+    '- Kalau ditanya/minta rekomendasi TEMPAT/KULINER/toko/lokasi: pakai tool find_place (otomatis kirim FOTO + alamat + link Maps). JANGAN kasih link /maps/search/ generik. Di teks kasih komentar singkat aja; alamat/link/foto udah dikirim otomatis, gak usah diulang.',
+    '- ANTI-NGARANG: find_place ngasih rating & review ASLI. Kalau bilang tempat "enak/bagus/rame", DASARIN ke rating/review itu (mis. "ratingnya 4.4 dari 200-an review, kayaknya oke"). JANGAN ngaku "katanya enak" kalau gak ada datanya. Kalau gak ada rating, bilang apa adanya ("belum banyak review sih").',
+    '- Kalau user minta "review"/"kata orang": kasih ringkasan review ASLI dari find_place (kutip 1-2 review + rating). Jangan bilang bingung — datanya ada di hasil find_place.',
+    '- Kalau find_place gak nemu (found:false), baru saranin cari manual / kasih link search biasa.',
     '# Lain-lain',
     '- Inget konteks obrolan sebelumnya (user jawab "iya"/"semuanya" = lanjutan pertanyaanmu barusan).'
   );
@@ -327,13 +329,19 @@ async function executeTool(name, args, attachments) {
         if (!place) {
           return { found: false, note: 'gak nemu di Maps' };
         }
+        const ratingStr = place.rating
+          ? `⭐ ${place.rating} (${place.ratingCount} review)`
+          : '';
         let photoTerkirim = false;
         if (place.photoName) {
           const photo = await fetchPlacePhoto(place.photoName);
           if (photo) {
             attachments.push({
               photo,
-              caption: `📍 *${place.name}*\n${place.address}\n${place.mapsUri}`,
+              caption:
+                `📍 *${place.name}*` +
+                (ratingStr ? ` ${ratingStr}` : '') +
+                `\n${place.address}\n${place.mapsUri}`,
             });
             photoTerkirim = true;
           }
@@ -343,6 +351,9 @@ async function executeTool(name, args, attachments) {
           name: place.name,
           address: place.address,
           mapsUri: place.mapsUri,
+          rating: place.rating,
+          ratingCount: place.ratingCount,
+          reviews: place.reviews, // review ASLI (author, rating, text)
           photoTerkirim,
         };
       }

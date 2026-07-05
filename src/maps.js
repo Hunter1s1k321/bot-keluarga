@@ -19,7 +19,7 @@ export async function searchPlace(query) {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': key,
           'X-Goog-FieldMask':
-            'places.displayName,places.formattedAddress,places.googleMapsUri,places.photos',
+            'places.displayName,places.formattedAddress,places.googleMapsUri,places.photos,places.rating,places.userRatingCount,places.reviews',
         },
         body: JSON.stringify({
           textQuery: query,
@@ -41,6 +41,13 @@ export async function searchPlace(query) {
       // buang param tracking (&g_mp=...) biar link bersih, cukup cid
       mapsUri: p.googleMapsUri.replace(/&g_mp=[^&]*/g, ''),
       photoName: p.photos?.[0]?.name || null,
+      rating: p.rating || null,
+      ratingCount: p.userRatingCount || 0,
+      reviews: (p.reviews || []).slice(0, 3).map((r) => ({
+        author: r.authorAttribution?.displayName || 'Anonim',
+        rating: r.rating || null,
+        text: (r.text?.text || r.originalText?.text || '').replace(/\s+/g, ' ').trim().slice(0, 220),
+      })).filter((r) => r.text),
     };
   } catch (e) {
     logger.warn(e, 'Places API gagal');
