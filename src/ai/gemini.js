@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { nowContext } from '../utils/dates.js';
-import { searchPlace, mapsSearchUrl } from '../maps.js';
+import { searchPlace, mapsSearchUrl, fetchPlacePhoto } from '../maps.js';
 
 const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
@@ -277,8 +277,13 @@ function extractSources(res) {
 async function resolveUrl(uri) {
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(uri, { method: 'GET', redirect: 'follow', signal: ctrl.signal });
+    const t = setTimeout(() => ctrl.abort(), 7000);
+    const res = await fetch(uri, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+    });
     clearTimeout(t);
     return res.url || uri;
   } catch {
@@ -355,7 +360,9 @@ export async function morningInfo() {
   const kulName = place?.name || kulinerName || 'kuliner sekitar';
   const kulUri = place?.mapsUri || mapsSearchUrl(`${kulinerName} ${loc}`);
 
-  // Dipisah jadi 2 pesan biar tiap link dapet preview/thumbnail sendiri di WA
+  // Foto tempat (dikirim sbg gambar WA -> dijamin ada gambarnya, gak ngandelin preview)
+  const photo = place?.photoName ? await fetchPlacePhoto(place.photoName) : null;
+
   const newsText =
     `📰 *Kabar sekitar:*\n${news.result || '-'}` +
     (news.sources[0]?.uri ? `\n\n🔗 ${news.sources[0].uri}` : '');
@@ -364,7 +371,7 @@ export async function morningInfo() {
     (place?.address ? `\n${place.address}` : '') +
     `\n\n📍 ${kulUri}`;
 
-  return { news: newsText, kuliner: kulinerText };
+  return { news: newsText, kuliner: { text: kulinerText, photo } };
 }
 
 /** Cek koneksi & API key valid (dipakai buat verifikasi Step 3). */

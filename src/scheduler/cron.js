@@ -78,7 +78,15 @@ export async function sendMorning(sock, jid = GROUP) {
     logger.warn(e, '[cron] info pagi gagal (skip)');
   }
   if (info?.news) await sendTo(sock, jid, info.news);
-  if (info?.kuliner) await sendTo(sock, jid, info.kuliner);
+  if (info?.kuliner) {
+    const { text, mentions } = applyMentions(info.kuliner.text);
+    if (info.kuliner.photo) {
+      // kirim FOTO tempatnya + caption (dijamin ada gambar, bukan preview link)
+      await sock.sendMessage(jid, { image: info.kuliner.photo, caption: text, mentions });
+    } else {
+      await sock.sendMessage(jid, { text, mentions });
+    }
+  }
 
   logger.info('[cron] pesan pagi terkirim');
 }
