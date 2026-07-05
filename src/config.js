@@ -26,6 +26,11 @@ export const config = {
     minute: parseInt(process.env.DAILY_JOB_MINUTE ?? '0', 10),
     timezone: process.env.TIMEZONE || 'Asia/Jakarta',
   },
+  maps: {
+    // Key Cloud biasa (AIzaSy...) buat Places API. Opsional: kalau kosong,
+    // link kuliner pakai search biasa (preview generik).
+    apiKey: process.env.MAPS_API_KEY || '',
+  },
   locationName: process.env.LOCATION_NAME || 'Harapan Indah, Bekasi',
   envPath: path.join(ROOT, '.env'),
   examplePath: path.join(ROOT, '.env.example'),
