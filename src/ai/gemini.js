@@ -355,13 +355,16 @@ export async function morningInfo() {
   const kulName = place?.name || kulinerName || 'kuliner sekitar';
   const kulUri = place?.mapsUri || mapsSearchUrl(`${kulinerName} ${loc}`);
 
-  // Rakit pesan rapi
-  const parts = [];
-  parts.push(`📰 *Kabar sekitar:*\n${news.result || '-'}`);
-  if (news.sources[0]?.uri) parts.push(`🔗 Sumber: ${news.sources[0].uri}`);
-  parts.push(`🍽️ *Kuliner hari ini:*\n*${kulName}*\n📍 Maps: ${kulUri}`);
+  // Dipisah jadi 2 pesan biar tiap link dapet preview/thumbnail sendiri di WA
+  const newsText =
+    `📰 *Kabar sekitar:*\n${news.result || '-'}` +
+    (news.sources[0]?.uri ? `\n\n🔗 ${news.sources[0].uri}` : '');
+  const kulinerText =
+    `🍽️ *Kuliner hari ini:*\n*${kulName}*` +
+    (place?.address ? `\n${place.address}` : '') +
+    `\n\n📍 ${kulUri}`;
 
-  return parts.join('\n\n');
+  return { news: newsText, kuliner: kulinerText };
 }
 
 /** Cek koneksi & API key valid (dipakai buat verifikasi Step 3). */

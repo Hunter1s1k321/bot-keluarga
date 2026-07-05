@@ -23,10 +23,10 @@ function line(e) {
   return `• ${e.summary} — seharian${loc}`;
 }
 
-/** Kirim teks ke grup, otomatis nge-tag anggota yang namanya kesebut. */
-async function sendTagged(sock, rawText) {
+/** Kirim teks ke suatu chat, otomatis nge-tag anggota yang namanya kesebut. */
+async function sendTo(sock, jid, rawText) {
   const { text, mentions } = applyMentions(rawText);
-  await sock.sendMessage(GROUP, { text, mentions });
+  await sock.sendMessage(jid, { text, mentions });
 }
 
 /** Susun teks rekap pagi: acara hari ini + besok (H-1). (Read-only, bisa dites.) */
@@ -61,29 +61,26 @@ function withTimeout(promise, ms, fallback) {
   ]);
 }
 
-/** Info pagi (berita + kuliner). Best-effort + timeout, gak bikin rekap hang/gagal. */
-async function buildDailyInfo() {
+/**
+ * Kirim rangkaian pesan pagi ke suatu chat: (1) rekap jadwal, (2) berita,
+ * (3) kuliner — DIPISAH biar tiap link dapet preview/thumbnail sendiri.
+ * Dipakai cron (ke grup) & command !pagi (ke chat pemanggil).
+ */
+export async function sendMorning(sock, jid = GROUP) {
+  // 1) rekap jadwal
+  await sendTo(sock, jid, await buildMorningDigest());
+
+  // 2 & 3) berita + kuliner (best-effort + timeout biar gak nge-hang)
+  let info = null;
   try {
-    const info = await withTimeout(morningInfo(), 25000, '');
-    return info ? `\n\n———\n${info}` : '';
+    info = await withTimeout(morningInfo(), 25000, null);
   } catch (e) {
     logger.warn(e, '[cron] info pagi gagal (skip)');
-    return '';
   }
-}
+  if (info?.news) await sendTo(sock, jid, info.news);
+  if (info?.kuliner) await sendTo(sock, jid, info.kuliner);
 
-/** Pesan pagi lengkap: rekap jadwal + info (berita/kuliner). */
-export async function buildFullMorning() {
-  const [digest, info] = await Promise.all([
-    buildMorningDigest(),
-    buildDailyInfo(),
-  ]);
-  return digest + info;
-}
-
-async function sendMorningDigest(sock) {
-  await sendTagged(sock, await buildFullMorning());
-  logger.info('[cron] rekap pagi + info terkirim');
+  logger.info('[cron] pesan pagi terkirim');
 }
 
 // Milestone reminder yang udah dikirim: key `${eventId}:${menit}` (60 / 5)
@@ -133,7 +130,7 @@ export function startScheduler() {
       const sock = getSock();
       if (!sock) return logger.warn('[cron] rekap pagi dilewati: WA belum konek');
       try {
-        await sendMorningDigest(sock);
+        await sendMorning(sock);
       } catch (e) {
         logger.error(e, '[cron] gagal rekap pagi');
       }
