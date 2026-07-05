@@ -38,7 +38,8 @@ export async function searchPlace(query) {
     return {
       name: p.displayName?.text || query,
       address: p.formattedAddress || '',
-      mapsUri: p.googleMapsUri,
+      // buang param tracking (&g_mp=...) biar link bersih, cukup cid
+      mapsUri: p.googleMapsUri.replace(/&g_mp=[^&]*/g, ''),
     };
   } catch (e) {
     logger.warn(e, 'Places API gagal');
