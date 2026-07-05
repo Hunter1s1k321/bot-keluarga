@@ -121,6 +121,15 @@ export async function handleMessage(sock, msg) {
       if (dl) media.push(dl);
     }
 
+    // tampilin "typing..." biar keliatan lagi kerja (riset bisa makan beberapa detik)
+    if (directlyAddressed) {
+      try {
+        await sock.sendPresenceUpdate('composing', jid);
+      } catch {
+        /* abaikan */
+      }
+    }
+
     const history = getHistory(jid);
     const { reply: answer, toolsUsed, attachments } = await runAgent({
       text: uttered,

@@ -304,7 +304,7 @@ async function resolveSources(sources) {
  * Cari info terkini via Google Search grounding (dipakai agent sbagai "alat").
  * @returns {Promise<{result:string, sources:Array<{title,uri}>}>}
  */
-export async function groundedSearch(query) {
+export async function groundedSearch(query, { resolve = false } = {}) {
   const base = {
     model: config.gemini.model,
     contents: query,
@@ -318,7 +318,9 @@ export async function groundedSearch(query) {
       ...base,
       config: { ...base.config, tools: [{ googleSearch: {} }] },
     });
-    const sources = await resolveSources(extractSources(res));
+    const raw = extractSources(res);
+    // resolve (bikin link asli) itu LAMBAT -> cuma pas dibutuhin (mis. info pagi)
+    const sources = resolve ? await resolveSources(raw) : raw;
     return { result: res.text?.trim() || '', sources };
   } catch (e) {
     logger.warn(`groundedSearch gagal (${e.message}), fallback tanpa search`);
@@ -336,10 +338,11 @@ export async function groundedSearch(query) {
 export async function morningInfo() {
   const loc = config.locationName;
 
-  // 1) Berita/kejadian sekitar (grounded)
+  // 1) Berita/kejadian sekitar (grounded) — resolve link biar rapi (ini bkn realtime chat)
   const news = await groundedSearch(
     `Kasih 1-2 kalimat kabar/kejadian menarik terkini seputar ${loc} atau Bekasi (bahasa Indonesia santai). ` +
-      `Kalau gak ada yang spesifik, kasih 1 fakta/tips menarik umum. JANGAN nyapa/salam, langsung isi, singkat.`
+      `Kalau gak ada yang spesifik, kasih 1 fakta/tips menarik umum. JANGAN nyapa/salam, langsung isi, singkat.`,
+    { resolve: true }
   );
 
   // 2) Nama tempat kuliner (grounded) — jawaban singkat biar bisa dicari di Maps
