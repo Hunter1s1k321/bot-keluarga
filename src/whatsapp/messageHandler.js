@@ -5,7 +5,8 @@ import { isQuotaError } from '../ai/gemini.js';
 import { detectMedia, downloadAsBase64 } from '../utils/media.js';
 import { getHistory, pushTurn, clearHistory } from './conversation.js';
 import { identify, senderNumber } from '../people.js';
-import { buildMorningDigest, checkUpcoming } from '../scheduler/cron.js';
+import { buildMorningDigest, checkReminders } from '../scheduler/cron.js';
+import { applyMentions } from './tagging.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -21,8 +22,11 @@ export function extractText(msg) {
   );
 }
 
-const reply = (sock, jid, msg, text) =>
-  sock.sendMessage(jid, { text }, { quoted: msg });
+// Balas + otomatis TAG anggota keluarga yang namanya kesebut.
+const reply = (sock, jid, msg, text) => {
+  const { text: t, mentions } = applyMentions(text);
+  return sock.sendMessage(jid, { text: t, mentions }, { quoted: msg });
+};
 
 /** Buang label internal "[nama]:" yang kadang bocor dari output model. */
 function cleanReply(text) {
@@ -65,9 +69,9 @@ export async function handleMessage(sock, msg) {
     return void (await reply(sock, jid, msg, text));
   }
   if (lower === '!ingat') {
-    // tes manual cek reminder 1 jam ke depan
-    await checkUpcoming(sock);
-    return void (await reply(sock, jid, msg, '(cek reminder 1 jam ke depan dijalanin)'));
+    // tes manual cek reminder (1 jam & 5 menit sebelum acara)
+    await checkReminders(sock);
+    return void (await reply(sock, jid, msg, '(cek reminder dijalanin)'));
   }
   if (lower === '!whoami') {
     const num = senderNumber(msg);

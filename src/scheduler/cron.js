@@ -11,6 +11,7 @@ import {
   formatTime,
   formatDayLabel,
 } from '../utils/dates.js';
+import { applyMentions } from '../whatsapp/tagging.js';
 
 const GROUP = config.whatsapp.familyGroupJid;
 
@@ -21,7 +22,13 @@ function line(e) {
   return `• ${e.summary} — seharian${loc}`;
 }
 
-/** Susun teks rekap pagi: acara hari ini + besok. (Read-only, bisa dites.) */
+/** Kirim teks ke grup, otomatis nge-tag anggota yang namanya kesebut. */
+async function sendTagged(sock, rawText) {
+  const { text, mentions } = applyMentions(rawText);
+  await sock.sendMessage(GROUP, { text, mentions });
+}
+
+/** Susun teks rekap pagi: acara hari ini + besok (H-1). (Read-only, bisa dites.) */
 export async function buildMorningDigest() {
   const today = ymd();
   const tom = addDays(today, 1);
@@ -46,40 +53,51 @@ export async function buildMorningDigest() {
 }
 
 async function sendMorningDigest(sock) {
-  const text = await buildMorningDigest();
-  await sock.sendMessage(GROUP, { text });
+  await sendTagged(sock, await buildMorningDigest());
   logger.info('[cron] rekap pagi terkirim');
 }
 
-// Acara yang udah dikasih reminder "1 jam lagi" (biar gak dobel). eventId -> startMs
-const reminded = new Map();
+// Milestone reminder yang udah dikirim: key `${eventId}:${menit}` (60 / 5)
+const sent = new Set();
 
-/** Cek acara yang mulai dalam 60 menit ke depan, kirim reminder sekali. */
-async function checkUpcoming(sock) {
-  const nowMs = Date.now();
-  const timeMin = new Date(nowMs).toISOString();
-  const timeMax = new Date(nowMs + 60 * 60 * 1000).toISOString();
+/**
+ * Cek acara yang bakal MULAI sebentar lagi, kirim reminder SEKALI per milestone:
+ *   - 1 jam sebelum
+ *   - 5 menit sebelum
+ * (H-1 dihandle rekap pagi.)
+ */
+export async function checkReminders(sock) {
+  const now = Date.now();
+  // ambil acara yg mulai dari sekarang s/d 66 menit ke depan
+  const events = await listEvents(
+    new Date(now).toISOString(),
+    new Date(now + 66 * 60 * 1000).toISOString()
+  );
 
-  // buang catatan lama (acara udah lewat)
-  for (const [id, ms] of reminded) {
-    if (ms < nowMs - 5 * 60 * 1000) reminded.delete(id);
+  for (const e of events) {
+    if (!e.start?.dateTime) continue; // acara seharian gak dapet reminder jam
+    const startMs = new Date(e.start.dateTime).getTime();
+    const mins = (startMs - now) / 60000;
+    if (mins <= 0) continue; // udah lewat / lagi berlangsung -> skip (fix bug spam)
+
+    if (mins > 55 && mins <= 65 && !sent.has(`${e.id}:60`)) {
+      sent.add(`${e.id}:60`);
+      await sendTagged(sock, `⏰ *1 jam lagi:*\n${line(e)}`);
+      logger.info(`[cron] reminder 1 jam: ${e.summary}`);
+    }
+    if (mins > 3 && mins <= 7 && !sent.has(`${e.id}:5`)) {
+      sent.add(`${e.id}:5`);
+      await sendTagged(sock, `⏰ *5 menit lagi:*\n${line(e)}`);
+      logger.info(`[cron] reminder 5 menit: ${e.summary}`);
+    }
   }
-
-  const events = await listEvents(timeMin, timeMax);
-  const due = events.filter((e) => e.start?.dateTime && !reminded.has(e.id));
-  if (!due.length) return;
-
-  for (const e of due) reminded.set(e.id, new Date(e.start.dateTime).getTime());
-  const text = `⏰ *1 jam lagi:*\n${due.map(line).join('\n')}`;
-  await sock.sendMessage(GROUP, { text });
-  logger.info(`[cron] reminder H-1jam terkirim (${due.length} acara)`);
 }
 
 /** Nyalain semua jadwal cron. */
 export function startScheduler() {
   const { hour, minute, timezone } = config.scheduler;
 
-  // Rekap pagi: sekali sehari jam HH:MM WIB
+  // Rekap pagi (H-1): sekali sehari jam HH:MM WIB
   cron.schedule(
     `${minute} ${hour} * * *`,
     async () => {
@@ -94,14 +112,14 @@ export function startScheduler() {
     { timezone }
   );
 
-  // Reminder 1 jam sebelum acara: cek tiap 5 menit
+  // Reminder 1 jam & 5 menit sebelum acara: cek tiap 2 menit
   cron.schedule(
-    '*/5 * * * *',
+    '*/2 * * * *',
     async () => {
       const sock = getSock();
       if (!sock) return;
       try {
-        await checkUpcoming(sock);
+        await checkReminders(sock);
       } catch (e) {
         logger.error(e, '[cron] gagal cek reminder');
       }
@@ -109,10 +127,10 @@ export function startScheduler() {
     { timezone }
   );
 
+  // Bersihin catatan reminder tiap tengah malam (biar Set gak numpuk)
+  cron.schedule('5 0 * * *', () => sent.clear(), { timezone });
+
   logger.info(
-    `⏰ Scheduler aktif: rekap pagi ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} WIB, cek reminder tiap 5 menit`
+    `⏰ Scheduler aktif: rekap pagi ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} WIB | reminder 1 jam & 5 menit sebelum acara`
   );
 }
-
-// Buat command test manual di WA (!pagi)
-export { sendMorningDigest, checkUpcoming };

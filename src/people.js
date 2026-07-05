@@ -34,6 +34,16 @@ export function roster() {
   return people.map((p) => ({ name: p.name, nick: p.nick }));
 }
 
+/** Data lengkap semua anggota (termasuk nomor). */
+export function peopleList() {
+  return people;
+}
+
+/** Nomor -> JID WhatsApp buat mention/tag. */
+export function numberToJid(num) {
+  return `${normalizeNumber(num)}@s.whatsapp.net`;
+}
+
 /**
  * Ambil nomor pengirim dari pesan WA (grup / japri).
  * Coba beberapa field karena WA baru kadang pakai LID.
