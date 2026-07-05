@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { getSock } from '../whatsapp/client.js';
 import { listEvents } from '../calendar/calendar.js';
+import { morningInfo } from '../ai/gemini.js';
 import {
   ymd,
   addDays,
@@ -52,9 +53,29 @@ export async function buildMorningDigest() {
   );
 }
 
+/** Info pagi (berita + kuliner). Best-effort, gak bikin rekap gagal. */
+async function buildDailyInfo() {
+  try {
+    const info = await morningInfo();
+    return info ? `\n\n———\n${info}` : '';
+  } catch (e) {
+    logger.warn(e, '[cron] info pagi gagal (skip)');
+    return '';
+  }
+}
+
+/** Pesan pagi lengkap: rekap jadwal + info (berita/kuliner). */
+export async function buildFullMorning() {
+  const [digest, info] = await Promise.all([
+    buildMorningDigest(),
+    buildDailyInfo(),
+  ]);
+  return digest + info;
+}
+
 async function sendMorningDigest(sock) {
-  await sendTagged(sock, await buildMorningDigest());
-  logger.info('[cron] rekap pagi terkirim');
+  await sendTagged(sock, await buildFullMorning());
+  logger.info('[cron] rekap pagi + info terkirim');
 }
 
 // Milestone reminder yang udah dikirim: key `${eventId}:${menit}` (60 / 5)

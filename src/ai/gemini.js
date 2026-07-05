@@ -321,6 +321,29 @@ export async function groundedSearch(query) {
   }
 }
 
+/**
+ * Info pagi buat digabung ke rekap: berita/kejadian sekitar + saran kuliner.
+ * Best-effort — kalau gak nemu berita spesifik, kasih konten menarik umum.
+ * @returns {Promise<string>}
+ */
+export async function morningInfo() {
+  const loc = config.locationName;
+  const q = [
+    `Buat "info pagi" singkat & santai buat grup keluarga (lokasi: ${loc}).`,
+    'Bahasa Indonesia informal, maksimal 5 baris, awali 1 emoji. Isi:',
+    `1) 1-2 kabar/kejadian/berita menarik terkini seputar ${loc} atau Bekasi (pakai hasil pencarian). Kalau gak ada yang spesifik, kasih 1 fakta/tips menarik umum — jangan kosong.`,
+    `2) 1 rekomendasi kuliner/tempat makan enak di sekitar ${loc}, SERTAKAN link Google Maps (format https://www.google.com/maps/search/?api=1&query=NAMA+TEMPAT).`,
+    'Jangan pakai judul formal & JANGAN nyapa/salam lagi (udah disapa di atas), langsung ke infonya.',
+  ].join(' ');
+
+  const { result, sources } = await groundedSearch(q);
+  let text = result || '';
+  if (sources.length) {
+    text += '\n' + sources.slice(0, 2).map((s) => s.uri).join('\n');
+  }
+  return text.trim();
+}
+
 /** Cek koneksi & API key valid (dipakai buat verifikasi Step 3). */
 export async function ping() {
   const res = await generateWithRetry({
