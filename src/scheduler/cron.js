@@ -1,5 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import cron from 'node-cron';
-import { config } from '../config.js';
+import { config, ROOT } from '../config.js';
 import { logger } from '../logger.js';
 import { getSock } from '../whatsapp/client.js';
 import { listEvents } from '../calendar/calendar.js';
@@ -15,6 +17,47 @@ import {
 import { applyMentions } from '../whatsapp/tagging.js';
 
 const GROUP = config.whatsapp.familyGroupJid;
+
+// --- timing rekap pagi: 2 jam sebelum acara pertama, default 05:00 ---
+const MORNING_DEFAULT_MIN = 5 * 60; // 05:00
+const MORNING_LEAD_MIN = 120; // 2 jam
+const LAST_MORNING_FILE = path.join(ROOT, '.last-morning');
+
+function getLastMorning() {
+  try {
+    return fs.readFileSync(LAST_MORNING_FILE, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+function setLastMorning(d) {
+  try {
+    fs.writeFileSync(LAST_MORNING_FILE, d);
+  } catch {
+    /* abaikan */
+  }
+}
+
+/** Menit-dalam-hari WIB (0..1439) dari Date/ISO. formatTime pakai titik ("05.30"). */
+function minutesWIB(dateInput) {
+  const [h, m] = formatTime(dateInput).split(/[.:]/).map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Menit target kirim rekap pagi HARI INI: 2 jam sebelum acara pertama,
+ * tapi gak lebih siang dari 05:00. Kalau gak ada acara -> 05:00.
+ */
+async function morningTargetMinutes() {
+  const today = ymd();
+  const evs = await listEvents(dayStartISO(today), dayEndISO(today));
+  const mins = evs
+    .filter((e) => e.start?.dateTime)
+    .map((e) => minutesWIB(e.start.dateTime));
+  if (!mins.length) return MORNING_DEFAULT_MIN;
+  const candidate = Math.min(...mins) - MORNING_LEAD_MIN;
+  return Math.max(0, Math.min(MORNING_DEFAULT_MIN, candidate));
+}
 
 /** Satu baris acara buat pesan reminder. */
 function line(e) {
@@ -73,7 +116,8 @@ export async function sendMorning(sock, jid = GROUP) {
   // 2 & 3) berita + kuliner (best-effort + timeout biar gak nge-hang)
   let info = null;
   try {
-    info = await withTimeout(morningInfo(), 25000, null);
+    info = await withTimeout(morningInfo(), 45000, null);
+    if (!info) logger.warn('[cron] info pagi timeout/kosong -> cuma kirim jadwal');
   } catch (e) {
     logger.warn(e, '[cron] info pagi gagal (skip)');
   }
@@ -116,12 +160,12 @@ export async function checkReminders(sock) {
 
     if (mins > 55 && mins <= 65 && !sent.has(`${e.id}:60`)) {
       sent.add(`${e.id}:60`);
-      await sendTagged(sock, `⏰ *1 jam lagi:*\n${line(e)}`);
+      await sendTo(sock, GROUP, `⏰ *1 jam lagi:*\n${line(e)}`);
       logger.info(`[cron] reminder 1 jam: ${e.summary}`);
     }
     if (mins > 3 && mins <= 7 && !sent.has(`${e.id}:5`)) {
       sent.add(`${e.id}:5`);
-      await sendTagged(sock, `⏰ *5 menit lagi:*\n${line(e)}`);
+      await sendTo(sock, GROUP, `⏰ *5 menit lagi:*\n${line(e)}`);
       logger.info(`[cron] reminder 5 menit: ${e.summary}`);
     }
   }
@@ -129,18 +173,25 @@ export async function checkReminders(sock) {
 
 /** Nyalain semua jadwal cron. */
 export function startScheduler() {
-  const { hour, minute, timezone } = config.scheduler;
+  const { timezone } = config.scheduler;
 
-  // Rekap pagi (H-1): sekali sehari jam HH:MM WIB
+  // Rekap pagi: cek tiap 10 menit; kirim 2 JAM sebelum acara pertama hari ini
+  // (default 05:00 kalau gak ada acara pagi). Sekali per hari.
   cron.schedule(
-    `${minute} ${hour} * * *`,
+    '*/10 * * * *',
     async () => {
       const sock = getSock();
-      if (!sock) return logger.warn('[cron] rekap pagi dilewati: WA belum konek');
+      if (!sock) return;
       try {
-        await sendMorning(sock);
+        const today = ymd();
+        if (getLastMorning() === today) return; // udah kirim hari ini
+        const target = await morningTargetMinutes();
+        if (minutesWIB(new Date()) >= target) {
+          setLastMorning(today);
+          await sendMorning(sock);
+        }
       } catch (e) {
-        logger.error(e, '[cron] gagal rekap pagi');
+        logger.error(e, '[cron] gagal cek/kirim pagi');
       }
     },
     { timezone }
@@ -165,6 +216,6 @@ export function startScheduler() {
   cron.schedule('5 0 * * *', () => sent.clear(), { timezone });
 
   logger.info(
-    `⏰ Scheduler aktif: rekap pagi ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} WIB | reminder 1 jam & 5 menit sebelum acara`
+    '⏰ Scheduler aktif: rekap pagi 2 jam sebelum acara pertama (default 05:00) | reminder 1 jam & 5 menit sebelum acara'
   );
 }

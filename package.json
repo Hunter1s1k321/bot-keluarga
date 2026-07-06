@@ -1,6 +1,6 @@
 {
   "name": "bot-keluarga",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "WhatsApp bot manajemen jadwal keluarga (Baileys + Gemini + Google Calendar)",
   "type": "module",
   "main": "src/index.js",
