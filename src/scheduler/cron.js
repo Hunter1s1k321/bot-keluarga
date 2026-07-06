@@ -186,9 +186,15 @@ export function startScheduler() {
         const today = ymd();
         if (getLastMorning() === today) return; // udah kirim hari ini
         const target = await morningTargetMinutes();
-        if (minutesWIB(new Date()) >= target) {
+        const now = minutesWIB(new Date());
+        // kirim cuma dalam window [target, target+3jam] biar gak nyepam kalau
+        // bot baru nyala/update jauh setelah target (mis. siang hari)
+        if (now >= target && now <= target + 180) {
           setLastMorning(today);
           await sendMorning(sock);
+        } else if (now > target + 180) {
+          // udah kelewat jauh -> anggap "udah lewat" hari ini, jgn kirim telat
+          setLastMorning(today);
         }
       } catch (e) {
         logger.error(e, '[cron] gagal cek/kirim pagi');
