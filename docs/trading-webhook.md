@@ -80,10 +80,31 @@ bikin *service token*, jadi request tanpa header `CF-Access-Client-Id`/`CF-Acces
 ditolak di edge (sebelum nyampe token webhook). Zero-trust dua lapis.
 
 ### Alternatif kalau gak punya domain
-- **Tailscale Funnel**: kasih hostname stabil `<mesin>.<tailnet>.ts.net` tanpa perlu domain sendiri.
-  `tailscale funnel 8787`. Cocok kalau gak mau ribet DNS.
 - **Cloudflare quick tunnel** (`cloudflared tunnel --url http://127.0.0.1:8787`) TIDAK cocok:
   URL-nya acak & ganti tiap restart, padahal routine butuh URL tetap.
+
+## B2. Setup Tailscale Funnel (DIPILIH — tanpa perlu domain)
+
+Funnel kasih hostname publik stabil `<mesin>.<tailnet>.ts.net` tanpa beli domain.
+Webhook TETAP bind 127.0.0.1 (Funnel proxy lokal ke localhost:8787), token tetap benteng utama.
+
+**Cara cepat — pakai script (jalanin SEKALI di laptop):**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-tailscale-funnel.ps1
+```
+Script bakal: install tailscale (winget) → `tailscale up` (login browser) →
+`tailscale funnel --bg 8787` → cetak `WEBHOOK_URL` + link `/health` yang siap dipasang.
+
+**Manual (kalau mau step-by-step):**
+1. `winget install --id tailscale.tailscale`
+2. `tailscale up` (login akun Tailscale, gratis)
+3. Di [admin console](https://login.tailscale.com/admin): enable **HTTPS Certificates** + **Funnel**
+4. `tailscale funnel --bg 8787`  (background, persist antar-reboot)
+5. `tailscale funnel status` → catat hostname. URL = `https://<mesin>.<tailnet>.ts.net/trade`
+6. Tes: `curl https://<mesin>.<tailnet>.ts.net/health` → `{"ok":true}`
+
+> Catatan: Funnel = publik ke internet (tanpa auth di lapis Tailscale), jadi **token webhook
+> tetap wajib** (udah constant-time). Coexist sama WARP.
 
 ## C. Setup bot trading (cloud routine)
 
