@@ -12,10 +12,22 @@ lalu kasih user URL publiknya. Kerjain sendiri, jangan banyak nanya — user uda
 
 ## STATUS SAAT INI (yang udah beres)
 - ✅ Token udah diisi user di `.env` (`TRADING_WEBHOOK_TOKEN=...`). JANGAN diubah.
-- ✅ Bot jalan sebagai Windows service `BotKeluarga`.
+- ✅ Bot jalan sebagai Windows service `BotKeluarga` (`botkeluarga.exe`, StartType Automatic).
 - ✅ Webhook lokal NYALA & sehat: `Invoke-RestMethod http://127.0.0.1:8787/health` → `ok True`.
-- ❌ BELUM SELESAI: expose webhook (127.0.0.1:8787) ke internet via Tailscale Funnel.
-  User coba jalanin `scripts/setup-tailscale-funnel.ps1` tapi Tailscale "gak bisa dibuka".
+- ✅ **SELESAI (2026-07-09): Funnel jalan & terverifikasi dari internet.**
+  URL publik: `https://abbalove-toshiba.tail0167fa.ts.net/trade` (tailnet `tail0167fa.ts.net`).
+  `tailscale funnel --bg 8787` (persist antar-reboot), service Tailscale = Automatic.
+
+## ⚠️ Biang kerok "Tailscale gak bisa dibuka" = Cloudflare WARP
+WARP mode full-tunnel nangkep semua trafik → Tailscale kehabisan UDP/DERP → `tailscale up`
+ngegantung diam. **Fix: WARP ditaruh proxy mode** (SOCKS5 127.0.0.1:40000) biar coexist,
+lalu git diarahin lewat proxy itu buat GitHub. Detail lengkap + command ada di
+`docs/trading-webhook.md` bagian **B2.1**. WARP tetep dibutuhin (MyRepublic blokir GitHub).
+
+## ⚠️ 2 scheduled task HILANG (perlu Admin buat bikin) — di luar tugas Funnel
+- `BotKeluargaAutoUpdate` (auto-update tiap 5 mnt) MISSING → jalanin `scripts\setup-autoupdate.bat` **as Admin**.
+- `WARPAutoConnect` (connect WARP pas boot, sebelum login) MISSING → jalanin `scripts\setup-warp-boot.bat` **as Admin**.
+  (Sekarang aman: WARP udah proxy mode, jadi connect-on-boot gak bakal matiin Tailscale.)
 
 ## Tugasmu (bikin webhook bisa dijangkau dari internet)
 Target: hasilkan URL publik stabil bentuk `https://<mesin>.<tailnet>.ts.net/trade` yang

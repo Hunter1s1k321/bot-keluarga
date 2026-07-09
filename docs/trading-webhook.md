@@ -104,7 +104,32 @@ Script bakal: install tailscale (winget) → `tailscale up` (login browser) →
 6. Tes: `curl https://<mesin>.<tailnet>.ts.net/health` → `{"ok":true}`
 
 > Catatan: Funnel = publik ke internet (tanpa auth di lapis Tailscale), jadi **token webhook
-> tetap wajib** (udah constant-time). Coexist sama WARP.
+> tetap wajib** (udah constant-time).
+
+### ⚠️ B2.1 — Konflik WARP ↔ Tailscale (WAJIB dibaca kalau WARP kepasang)
+
+Laptop Toshiba butuh **Cloudflare WARP** karena ISP (MyRepublic) suka blokir GitHub —
+`git pull` auto-update gak jalan tanpa WARP. Tapi **WARP mode full-tunnel ("warp")
+nangkep SEMUA trafik jaringan** → Tailscale kehabisan UDP/DERP (`netcheck` → `UDP: false`,
+`Nearest DERP: unknown`) → `tailscale up` **ngegantung DIAM tanpa AuthURL / tanpa error**.
+Inilah gejala "Tailscale gak bisa dibuka" — bukan masalah instalasi Tailscale.
+
+**Solusi coexistence (dua-duanya hidup bareng):**
+1. Taruh WARP di **proxy mode** (SOCKS5, gak nangkep network stack):
+   ```powershell
+   & "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe" mode proxy
+   & "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe" proxy port 40000
+   & "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe" connect
+   ```
+   Mode ini persist antar-reboot. Verifikasi Tailscale sehat lagi: `tailscale netcheck` → `UDP: true`.
+2. Arahin **cuma GitHub** lewat proxy WARP (repo-local, kena ke user manapun yg jalanin task):
+   ```powershell
+   git -C C:\bot-keluarga config http.https://github.com/.proxy socks5h://127.0.0.1:40000
+   ```
+   Tes: `git -C C:\bot-keluarga fetch origin main` → sukses.
+
+> JANGAN balikin WARP ke full-tunnel (`warp-cli mode warp`) — itu bakal matiin Tailscale Funnel lagi.
+> Di mesin ini: **WARP proxy mode + Tailscale Funnel = jalan bareng**, sudah terverifikasi.
 
 ## C. Setup bot trading (cloud routine)
 
