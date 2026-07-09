@@ -32,9 +32,9 @@ USD_IDR_FALLBACK=16500                       # opsional (cadangan kalau API kurs
 ```
 Restart bot → log: `💹 Webhook trading aktif di http://127.0.0.1:8787/trade (health: /health)`.
 
-Bikin token acak (PowerShell):
+Bikin token acak yang kuat (PowerShell, 48 hex):
 ```powershell
--join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})
+$b = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') })
 ```
 
 ## B. Setup Cloudflare Tunnel (laptop, sekali doang)
