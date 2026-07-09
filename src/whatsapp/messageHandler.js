@@ -7,6 +7,9 @@ import { getHistory, pushTurn, clearHistory } from './conversation.js';
 import { identify, senderNumber } from '../people.js';
 import { sendMorning, checkReminders } from '../scheduler/cron.js';
 import { applyMentions } from './tagging.js';
+import { buildIntro, buildOpened } from '../trading/format.js';
+import { usdIdrRate } from '../trading/fx.js';
+import { config } from '../config.js';
 
 /** Ambil teks dari berbagai tipe pesan WA (chat biasa / caption gambar / dll). */
 export function extractText(msg) {
@@ -74,6 +77,21 @@ export async function handleMessage(sock, msg) {
     // tes manual cek reminder (1 jam & 5 menit sebelum acara)
     await checkReminders(sock);
     return void (await reply(sock, jid, msg, '(cek reminder dijalanin)'));
+  }
+  if (lower === '!trading-intro') {
+    // kirim pesan perkenalan bot trading (buat nenangin ortu) — sekali cukup
+    return void (await reply(sock, jid, msg, buildIntro(config.trading.owner)));
+  }
+  if (lower === '!trading-test') {
+    // preview format notif "posisi dibuka" pakai data contoh
+    const rate = await usdIdrRate();
+    const sample = {
+      positions: [
+        { asset: 'BTC', side: 'SHORT', sizeUsd: 1200, entry: 63500, tp: 41275, sl: 65000, reason: 'tren turun, daily close nembus bawah GC Filter' },
+        { asset: 'ETH', side: 'SHORT', sizeUsd: 900, entry: 3400, tp: 2210, sl: 3550, reason: 'momentum melemah, ikut sinyal radar' },
+      ],
+    };
+    return void (await reply(sock, jid, msg, buildOpened(sample, rate)));
   }
   if (lower === '!whoami') {
     const num = senderNumber(msg);

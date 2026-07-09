@@ -35,6 +35,16 @@ export const config = {
     // link kuliner pakai search biasa (preview generik).
     apiKey: process.env.MAPS_API_KEY || '',
   },
+  trading: {
+    // Webhook lokal buat nerima notif dari bot trading kripto (TR-GC-Crypto-LS-9).
+    // Kalau token KOSONG -> webhook OFF total (fitur trading nonaktif, aman).
+    webhookPort: parseInt(process.env.TRADING_WEBHOOK_PORT ?? '8787', 10),
+    webhookToken: process.env.TRADING_WEBHOOK_TOKEN || '',
+    // Nama pemilik bot trading (buat di-tag di pesan perkenalan).
+    owner: process.env.TRADING_OWNER || 'Marvel',
+    // Kurs cadangan USD->IDR kalau API kurs lagi down.
+    fxFallback: parseInt(process.env.USD_IDR_FALLBACK ?? '16500', 10),
+  },
   locationName: process.env.LOCATION_NAME || 'Harapan Indah, Bekasi',
   envPath: path.join(ROOT, '.env'),
   examplePath: path.join(ROOT, '.env.example'),

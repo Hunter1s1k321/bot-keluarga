@@ -4,6 +4,7 @@ import { startWhatsApp } from './whatsapp/client.js';
 import { handleMessage } from './whatsapp/messageHandler.js';
 import { startScheduler } from './scheduler/cron.js';
 import { announcePendingUpdate } from './updateNotify.js';
+import { startTradingWebhook } from './trading/webhook.js';
 
 async function main() {
   logger.info('=== Menyalakan Bot Keluarga ===');
@@ -19,6 +20,9 @@ async function main() {
   // Scheduler: rekap pagi + reminder 1 jam sebelum acara.
   // Pakai getSock() saat firing, jadi aman walau WA reconnect.
   startScheduler();
+
+  // Webhook lokal buat notif dari bot trading kripto (OFF kalau token kosong).
+  startTradingWebhook();
 }
 
 main().catch((e) => {
