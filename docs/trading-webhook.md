@@ -174,6 +174,13 @@ Body: JSON dengan field `type`. Respon sukses: `{"ok":true}`.
 { "type": "intro" }
 ```
 
+### 6. Pesan bebas — `message` (teks apa aja ke grup)
+```json
+{ "type": "message", "text": "FYI tiap pagi ~07.30 botnya mulai buka posisi ya 🌅", "mention": false }
+```
+`text` wajib (string). `mention` opsional (default false); kalau `true`, nama anggota
+keluarga yang kesebut di teks bakal di-tag. Bold WhatsApp pakai `*satu bintang*`.
+
 ## Contoh perintah (buat prompt routine bot trading)
 
 curl (ganti `$WEBHOOK_URL` & `$WEBHOOK_TOKEN` dgn secret routine):

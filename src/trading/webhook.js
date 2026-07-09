@@ -40,8 +40,24 @@ async function sendGroup(text, { mention = false } = {}) {
   }
 }
 
-/** Rakit pesan dari payload webhook. Return null kalau type gak dikenal. */
+/**
+ * Rakit pesan dari payload webhook.
+ * Return: { text, mention } kalau sukses, { error } kalau payload salah,
+ * atau null kalau type gak dikenal.
+ */
 async function buildMessage(body) {
+  // Type yang gak butuh kurs USD->IDR:
+  if (body.type === 'intro') {
+    return { text: buildIntro(config.trading.owner), mention: true };
+  }
+  if (body.type === 'message') {
+    // Teks bebas: kirim apa adanya ke grup. mention=true buat nge-tag nama keluarga.
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) return { error: "field 'text' wajib diisi (string) buat type 'message'" };
+    return { text, mention: body.mention === true };
+  }
+
+  // Sisanya (notif trade) butuh kurs buat konversi Rupiah:
   const rate = await usdIdrRate();
   switch (body.type) {
     case 'opened':
@@ -52,8 +68,6 @@ async function buildMessage(body) {
       return { text: buildTakeProfit(body, rate) };
     case 'daily_summary':
       return { text: buildDailySummary(body, rate) };
-    case 'intro':
-      return { text: buildIntro(config.trading.owner), mention: true };
     default:
       return null;
   }
@@ -119,6 +133,10 @@ export function startTradingWebhook() {
           return res.end(
             JSON.stringify({ ok: false, error: `type '${body.type}' gak dikenal` })
           );
+        }
+        if (msg.error) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ ok: false, error: msg.error }));
         }
         await sendGroup(msg.text, { mention: msg.mention });
         logger.info(`[trading] notif '${body.type}' terkirim ke grup`);
