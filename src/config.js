@@ -39,6 +39,9 @@ export const config = {
     // Webhook lokal buat nerima notif dari bot trading kripto (TR-GC-Crypto-LS-9).
     // Kalau token KOSONG -> webhook OFF total (fitur trading nonaktif, aman).
     webhookPort: parseInt(process.env.TRADING_WEBHOOK_PORT ?? '8787', 10),
+    // Bind address. DEFAULT 127.0.0.1 (aman) — akses dari cloud lewat Cloudflare
+    // Tunnel yang nyambung lokal. Ubah cuma kalau paham risikonya.
+    webhookBind: process.env.TRADING_WEBHOOK_BIND || '127.0.0.1',
     webhookToken: process.env.TRADING_WEBHOOK_TOKEN || '',
     // Nama pemilik bot trading (buat di-tag di pesan perkenalan).
     owner: process.env.TRADING_OWNER || 'Marvel',

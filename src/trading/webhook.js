@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { getSock } from '../whatsapp/client.js';
@@ -14,6 +15,18 @@ import {
 
 const GROUP = config.whatsapp.familyGroupJid;
 const MAX_BODY = 1_000_000; // 1 MB guard
+
+/**
+ * Bandingin token secara CONSTANT-TIME (anti timing attack). Endpoint ini
+ * kebuka ke internet via Cloudflare Tunnel, jadi token = satu-satunya benteng.
+ * Hash dulu ke SHA-256 (panjang tetap 32 byte) biar gak bocorin panjang token.
+ */
+function tokenOk(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = crypto.createHash('sha256').update(String(provided)).digest();
+  const b = crypto.createHash('sha256').update(String(expected)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
 
 /** Kirim teks ke grup keluarga. mention=true buat nge-tag nama (mis. owner). */
 async function sendGroup(text, { mention = false } = {}) {
@@ -47,15 +60,20 @@ async function buildMessage(body) {
 }
 
 /**
- * Nyalain webhook lokal buat nerima notif dari bot trading kripto.
- * POST http://127.0.0.1:<port>/trade  (header: Authorization: Bearer <token>)
+ * Nyalain webhook buat nerima notif dari bot trading kripto.
+ * POST /trade  (header: Authorization: Bearer <token>)
+ * GET  /health (tanpa auth, buat health-check tunnel/monitoring)
  * Body JSON: { type: 'opened'|'stop_loss'|'take_profit'|'daily_summary'|'intro', ... }
  *
  * Kalau TRADING_WEBHOOK_TOKEN kosong -> webhook OFF (fitur trading nonaktif).
- * Bind 127.0.0.1 aja: ini endpoint finansial, jangan kebuka ke jaringan.
+ *
+ * Bind DEFAULT 127.0.0.1: server-nya sendiri gak kebuka ke internet. Bot trading
+ * jalan di cloud (Claude.ai routine), jadi akses dari luar lewat Cloudflare Tunnel
+ * (cloudflared) yang jalan di laptop & nyambung lokal ke 127.0.0.1:<port>. Auth
+ * tetap wajib (token constant-time) karena hostname tunnel dijangkau dari internet.
  */
 export function startTradingWebhook() {
-  const { webhookToken, webhookPort } = config.trading;
+  const { webhookToken, webhookPort, webhookBind } = config.trading;
   if (!webhookToken) {
     logger.warn(
       '[trading] TRADING_WEBHOOK_TOKEN kosong -> webhook trading OFF (fitur notif trading nonaktif)'
@@ -64,11 +82,18 @@ export function startTradingWebhook() {
   }
 
   const server = http.createServer((req, res) => {
+    // Health check (dipakai cloudflared/monitoring) — gak bocorin info apa pun.
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
+    }
     if (req.method !== 'POST' || req.url !== '/trade') {
       res.writeHead(404, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: false, error: 'not found' }));
     }
-    if ((req.headers['authorization'] || '') !== `Bearer ${webhookToken}`) {
+    const header = req.headers['authorization'] || '';
+    const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
+    if (!tokenOk(provided, webhookToken)) {
       res.writeHead(401, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
     }
@@ -108,9 +133,15 @@ export function startTradingWebhook() {
   });
 
   server.on('error', (e) => logger.error(e, '[trading] webhook server error'));
-  server.listen(webhookPort, '127.0.0.1', () => {
+  const bind = webhookBind || '127.0.0.1';
+  if (bind !== '127.0.0.1' && bind !== 'localhost') {
+    logger.warn(
+      `[trading] bind=${bind} (bukan localhost) -> server kebuka ke jaringan langsung. Idealnya bind 127.0.0.1 + Cloudflare Tunnel.`
+    );
+  }
+  server.listen(webhookPort, bind, () => {
     logger.info(
-      `💹 Webhook trading aktif di http://127.0.0.1:${webhookPort}/trade`
+      `💹 Webhook trading aktif di http://${bind}:${webhookPort}/trade (health: /health)`
     );
   });
   return server;

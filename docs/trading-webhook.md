@@ -1,27 +1,99 @@
 # Webhook Notif Bot Trading → Grup WA
 
-Family bot ("Keluarga binar") buka **webhook lokal** buat nerima notif dari bot
-trading kripto (TR-GC-Crypto-LS-9) dan meneruskannya sebagai pesan ke grup WA.
+Family bot ("Keluarga binar") buka **webhook** buat nerima notif dari bot trading
+kripto (TR-GC-Crypto-LS-9) dan meneruskannya sebagai pesan ke grup WA.
 
-## Setup (di laptop yang jalanin family bot)
+## Arsitektur (PENTING)
 
-1. Isi `.env`:
+Bot trading jalan sebagai **scheduled routine di cloud Claude.ai**, family bot jalan
+di **laptop rumah** (di balik NAT, gak punya IP publik). Jadi keduanya **beda mesin** —
+`127.0.0.1` gak bisa dipakai.
+
+Solusinya **Cloudflare Tunnel** (`cloudflared`) yang jalan di laptop:
+
+```
+[Cloud routine] --HTTPS--> [Cloudflare edge] --tunnel keluar--> [cloudflared di laptop] --> 127.0.0.1:8787 (family bot)
+```
+
+- Koneksi tunnel **keluar** dari laptop → gak perlu buka port router, gak ada lubang inbound.
+- Webhook family bot **tetap bind 127.0.0.1** → cuma cloudflared (lokal) yang bisa nyentuh.
+- Satu-satunya jalan dari internet = hostname tunnel + **token** (dicek constant-time).
+- Coexist sama WARP yang udah kepasang.
+
+## A. Setup family bot (laptop)
+
+Isi `.env`:
+```
+TRADING_WEBHOOK_TOKEN=<token-acak-32-hex>   # WAJIB, kalau kosong webhook OFF
+TRADING_WEBHOOK_PORT=8787                    # opsional
+TRADING_OWNER=Marvel                         # opsional (di-tag di pesan intro)
+USD_IDR_FALLBACK=16500                       # opsional (cadangan kalau API kurs down)
+# TRADING_WEBHOOK_BIND=127.0.0.1             # JANGAN diubah kalau pakai tunnel
+```
+Restart bot → log: `💹 Webhook trading aktif di http://127.0.0.1:8787/trade (health: /health)`.
+
+Bikin token acak (PowerShell):
+```powershell
+-join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})
+```
+
+## B. Setup Cloudflare Tunnel (laptop, sekali doang)
+
+> Butuh **domain di Cloudflare** (buat hostname stabil). Kalau belum punya, lihat "Alternatif" di bawah.
+
+1. Install cloudflared:
+   ```powershell
+   winget install --id Cloudflare.cloudflared
    ```
-   TRADING_WEBHOOK_TOKEN=<token-acak>   # WAJIB, kalau kosong webhook OFF
-   TRADING_WEBHOOK_PORT=8787            # opsional
-   TRADING_OWNER=Marvel                 # opsional (di-tag di pesan intro)
-   USD_IDR_FALLBACK=16500               # opsional (cadangan kalau API kurs down)
+2. Login ke akun Cloudflare (buka browser, pilih domain):
+   ```powershell
+   cloudflared tunnel login
    ```
-2. Restart bot. Log muncul: `💹 Webhook trading aktif di http://127.0.0.1:8787/trade`.
+3. Bikin tunnel:
+   ```powershell
+   cloudflared tunnel create botkeluarga
+   ```
+4. Buat file config `C:\Users\<user>\.cloudflared\config.yml`:
+   ```yaml
+   tunnel: <TUNNEL_ID_dari_langkah_3>
+   credentials-file: C:\Users\<user>\.cloudflared\<TUNNEL_ID>.json
+   ingress:
+     - hostname: trade-bot.contohdomain.com
+       service: http://127.0.0.1:8787
+     - service: http_status:404
+   ```
+5. Arahin DNS ke tunnel:
+   ```powershell
+   cloudflared tunnel route dns botkeluarga trade-bot.contohdomain.com
+   ```
+6. Tes: `cloudflared tunnel run botkeluarga`, lalu dari mana aja:
+   ```
+   curl https://trade-bot.contohdomain.com/health   →   {"ok":true}
+   ```
+7. Pasang jadi service Windows (jalan otomatis pas boot, hands-off):
+   ```powershell
+   cloudflared service install
+   ```
 
-> Server cuma listen di `127.0.0.1` → bot trading HARUS jalan di laptop yang sama.
-> USD→IDR di-fetch otomatis oleh family bot (real-time, cache 30 mnt). Payload
-> cukup kirim angka **USD** aja.
+**Hardening opsional (disarankan):** aktifin **Cloudflare Access** di hostname itu +
+bikin *service token*, jadi request tanpa header `CF-Access-Client-Id`/`CF-Access-Client-Secret`
+ditolak di edge (sebelum nyampe token webhook). Zero-trust dua lapis.
+
+### Alternatif kalau gak punya domain
+- **Tailscale Funnel**: kasih hostname stabil `<mesin>.<tailnet>.ts.net` tanpa perlu domain sendiri.
+  `tailscale funnel 8787`. Cocok kalau gak mau ribet DNS.
+- **Cloudflare quick tunnel** (`cloudflared tunnel --url http://127.0.0.1:8787`) TIDAK cocok:
+  URL-nya acak & ganti tiap restart, padahal routine butuh URL tetap.
+
+## C. Setup bot trading (cloud routine)
+
+Di prompt routine, simpan 2 secret: `WEBHOOK_URL` = `https://trade-bot.contohdomain.com/trade`
+dan `WEBHOOK_TOKEN` = token yang **sama persis** dengan `.env` laptop. Lalu POST tiap event.
 
 ## Cara panggil
 
-`POST http://127.0.0.1:8787/trade`
-Header: `Authorization: Bearer <TRADING_WEBHOOK_TOKEN>`, `Content-Type: application/json`
+`POST <WEBHOOK_URL>` (lokal: `http://127.0.0.1:8787/trade`)
+Header: `Authorization: Bearer <token>`, `Content-Type: application/json`
 Body: JSON dengan field `type`. Respon sukses: `{"ok":true}`.
 
 ### 1. Posisi dibuka — `opened`
@@ -56,22 +128,22 @@ Body: JSON dengan field `type`. Respon sukses: `{"ok":true}`.
 { "type": "intro" }
 ```
 
-## Contoh perintah (buat prompt Claude Code bot trading)
+## Contoh perintah (buat prompt routine bot trading)
 
-PowerShell (Windows):
-```powershell
-$body = @{ type='daily_summary'; tpCount=3; slCount=1; netPnlUsd=340; portfolioPct=2.1; navUsd=16000 } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/trade `
-  -Headers @{ Authorization = "Bearer $env:TRADING_WEBHOOK_TOKEN" } `
-  -ContentType 'application/json' -Body $body
-```
-
-curl:
+curl (ganti `$WEBHOOK_URL` & `$WEBHOOK_TOKEN` dgn secret routine):
 ```bash
-curl -s -X POST http://127.0.0.1:8787/trade \
-  -H "Authorization: Bearer $TRADING_WEBHOOK_TOKEN" \
+curl -s -X POST "$WEBHOOK_URL" \
+  -H "Authorization: Bearer $WEBHOOK_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"type":"take_profit","asset":"SOL","side":"SHORT","entry":150,"exit":97.5,"pnlUsd":210,"durationDays":12}'
+```
+
+PowerShell:
+```powershell
+$body = @{ type='daily_summary'; tpCount=3; slCount=1; netPnlUsd=340; portfolioPct=2.1; navUsd=16000 } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri $env:WEBHOOK_URL `
+  -Headers @{ Authorization = "Bearer $($env:WEBHOOK_TOKEN)" } `
+  -ContentType 'application/json' -Body $body
 ```
 
 ## Tes tanpa bot trading
@@ -79,3 +151,12 @@ curl -s -X POST http://127.0.0.1:8787/trade \
 Di grup WA, kirim:
 - `!trading-intro` → kirim pesan perkenalan
 - `!trading-test` → preview format notif "posisi dibuka" (data contoh)
+
+Cek tunnel hidup: `curl https://trade-bot.contohdomain.com/health` → `{"ok":true}`.
+
+## Catatan keamanan
+
+- Token = satu-satunya benteng begitu endpoint online. Pakai 32+ karakter acak, jangan di-commit.
+- Token disimpan di DUA tempat (`.env` laptop + secret routine cloud) — perlakukan sbagai password.
+- Kalau token bocor: ganti di dua tempat, restart bot + routine.
+- Lapis ekstra: Cloudflare Access service token (lihat B). Webhook bind tetap 127.0.0.1.
