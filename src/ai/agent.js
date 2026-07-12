@@ -382,7 +382,8 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
   const toolsUsed = [];
   const attachments = []; // gambar (mis. foto tempat) yang mau dikirim ke chat
 
-  for (let i = 0; i < 6; i++) {
+  let emptyRetries = 0;
+  for (let i = 0; i < 8; i++) {
     const res = await generateWithRetry({
       model: config.gemini.model,
       contents,
@@ -395,7 +396,29 @@ export async function runAgent({ text = '', media = [], history = [], mode = 'di
 
     const calls = res.functionCalls || [];
     if (calls.length === 0) {
-      return { reply: res.text?.trim() || '', toolsUsed, attachments };
+      const textOut = res.text?.trim() || '';
+      if (textOut) return { reply: textOut, toolsUsed, attachments };
+
+      // Respons KOSONG (gak manggil tool & gak ada teks). Paling sering karena
+      // MALFORMED_FUNCTION_CALL: Gemini gagal nyusun argumen tool yang nested
+      // (mis. create_events dgn repeat.days[] buat banyak acara berulang), atau
+      // giliran rangkuman yang nge-blank. JANGAN langsung nyerah -> sample ulang
+      // (contents sama, temperature>0 jadi percobaan berikutnya biasanya valid).
+      const finishReason = res.candidates?.[0]?.finishReason;
+      logger.warn({ finishReason, iter: i, toolsUsed }, '[agent] respons kosong -> retry');
+      if (emptyRetries < 2) {
+        emptyRetries++;
+        continue;
+      }
+      // Masih kosong setelah retry. Proaktif -> diam (jangan nyepam); direct -> jujur.
+      if (mode === 'proactive') return { reply: '', toolsUsed, attachments };
+      return {
+        reply:
+          'waduh responsku barusan nge-blank 😅 coba ulang perintahnya ya. ' +
+          '(kalau soal nyatet jadwal, cek dulu udah masuk apa belum sebelum ngulang)',
+        toolsUsed,
+        attachments,
+      };
     }
 
     // simpan giliran model (yang berisi functionCall) ke konteks
