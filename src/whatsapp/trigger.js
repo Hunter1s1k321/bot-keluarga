@@ -1,4 +1,5 @@
-import { isBotMentioned, isReplyToBot } from './mentions.js';
+import { logger } from '../logger.js';
+import { isBotMentioned, isReplyToBot, mentionedJids, botJids } from './mentions.js';
 
 // Mode proaktif bisa dimatiin lewat .env: AUTO_SCHEDULE_DETECT=0
 const AUTO_DETECT = process.env.AUTO_SCHEDULE_DETECT !== '0';
@@ -39,5 +40,14 @@ export function detectTrigger(sock, msg, text) {
   if (/\bclaude\b/i.test(text)) return { mode: 'direct' };
   if (text && isScheduleCommand(text)) return { mode: 'direct' };
   if (AUTO_DETECT && text && schedulingHint(text)) return { mode: 'proactive' };
+  // DEBUG: ada yang di-tag tapi gak match bot -> log biar keliatan mismatch JID-nya
+  // (mis. grup mention pakai @lid tapi lid bot beda). Buat diagnosa deteksi mention.
+  const mj = mentionedJids(msg);
+  if (mj.length) {
+    logger.info(
+      { mentionedJids: mj, botJids: [...botJids(sock)] },
+      '[trigger] ada mention tapi gak match bot'
+    );
+  }
   return { mode: 'none' };
 }

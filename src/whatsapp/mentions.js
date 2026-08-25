@@ -12,10 +12,16 @@ function stripDevice(jid = '') {
  */
 export function botJids(sock) {
   const out = new Set();
-  const id = sock.user?.id;
-  if (id) out.add(stripDevice(id)); // 6285...@s.whatsapp.net
-  const lid = sock.user?.lid;
-  if (lid) out.add(stripDevice(lid)); // xxxx@lid
+  const add = (j) => {
+    if (j && typeof j === 'string') out.add(stripDevice(j));
+  };
+  // Ambil dari SEMUA sumber yg mungkin — abis re-link (scan QR baru) kadang
+  // sock.user.lid kosong tapi identitasnya ada di authState.creds.me.
+  add(sock.user?.id); // 6285...@s.whatsapp.net
+  add(sock.user?.lid); // xxxx@lid
+  const me = sock.authState?.creds?.me;
+  add(me?.id);
+  add(me?.lid);
   return out;
 }
 
