@@ -1,10 +1,14 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { config } from '../config.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { config, ROOT } from '../config.js';
 import { logger } from '../logger.js';
 import { getSock } from '../whatsapp/client.js';
 import { usdIdrRate } from './fx.js';
 import { applyMentions } from '../whatsapp/tagging.js';
+import { botJids } from '../whatsapp/mentions.js';
+import { getLastMention } from '../whatsapp/trigger.js';
 import {
   buildOpened,
   buildStopLoss,
@@ -15,6 +19,14 @@ import {
 
 const GROUP = config.whatsapp.familyGroupJid;
 const MAX_BODY = 1_000_000; // 1 MB guard
+
+// Versi kode yang lagi jalan (buat verifikasi deploy dari /debug jarak jauh).
+let VERSION = 'unknown';
+try {
+  VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+} catch {
+  /* abaikan */
+}
 
 /**
  * Bandingin token secara CONSTANT-TIME (anti timing attack). Endpoint ini
@@ -100,6 +112,26 @@ export function startTradingWebhook() {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true }));
+    }
+    // Debug (token-protected): versi kode + identitas bot + mention terakhir.
+    // Buat diagnosa deteksi mention dari jarak jauh tanpa baca log Toshiba.
+    if (req.method === 'GET' && req.url === '/debug') {
+      const h = req.headers['authorization'] || '';
+      if (!tokenOk(h.startsWith('Bearer ') ? h.slice(7) : '', webhookToken)) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      }
+      const sock = getSock();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(
+        JSON.stringify({
+          ok: true,
+          version: VERSION,
+          waConnected: !!sock,
+          botJids: sock ? [...botJids(sock)] : [],
+          lastMention: getLastMention(),
+        })
+      );
     }
     if (req.method !== 'POST' || req.url !== '/trade') {
       res.writeHead(404, { 'content-type': 'application/json' });

@@ -35,19 +35,37 @@ export function schedulingHint(text) {
  *                nimbrung kalau perlu, kalau nggak jawab "SKIP" (diam).
  *   - none     : abaikan (cuma disimpan ke konteks).
  */
+// Mention terakhir yang kelihatan (buat diagnosa lewat endpoint /debug).
+let _lastMention = null;
+export function getLastMention() {
+  return _lastMention;
+}
+
 export function detectTrigger(sock, msg, text) {
-  if (isBotMentioned(sock, msg) || isReplyToBot(sock, msg)) return { mode: 'direct' };
+  const mentioned = isBotMentioned(sock, msg);
+  const replied = isReplyToBot(sock, msg);
+
+  // Rekam tiap ada tag (match atau nggak) buat diagnosa deteksi mention.
+  const mj = mentionedJids(msg);
+  if (mj.length) {
+    _lastMention = {
+      at: new Date().toISOString(),
+      mentionedJids: mj,
+      botJids: [...botJids(sock)],
+      matched: mentioned,
+      text: (text || '').slice(0, 60),
+    };
+    if (!mentioned) {
+      logger.info(
+        { mentionedJids: mj, botJids: [...botJids(sock)] },
+        '[trigger] ada mention tapi gak match bot'
+      );
+    }
+  }
+
+  if (mentioned || replied) return { mode: 'direct' };
   if (/\bclaude\b/i.test(text)) return { mode: 'direct' };
   if (text && isScheduleCommand(text)) return { mode: 'direct' };
   if (AUTO_DETECT && text && schedulingHint(text)) return { mode: 'proactive' };
-  // DEBUG: ada yang di-tag tapi gak match bot -> log biar keliatan mismatch JID-nya
-  // (mis. grup mention pakai @lid tapi lid bot beda). Buat diagnosa deteksi mention.
-  const mj = mentionedJids(msg);
-  if (mj.length) {
-    logger.info(
-      { mentionedJids: mj, botJids: [...botJids(sock)] },
-      '[trigger] ada mention tapi gak match bot'
-    );
-  }
   return { mode: 'none' };
 }
