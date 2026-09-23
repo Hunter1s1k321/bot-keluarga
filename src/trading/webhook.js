@@ -7,7 +7,7 @@ import { logger } from '../logger.js';
 import { getSock } from '../whatsapp/client.js';
 import { usdIdrRate } from './fx.js';
 import { applyMentions } from '../whatsapp/tagging.js';
-import { botJids } from '../whatsapp/mentions.js';
+import { botJids, learnedBots } from '../whatsapp/mentions.js';
 import { getLastMention } from '../whatsapp/trigger.js';
 import {
   buildOpened,
@@ -129,6 +129,7 @@ export function startTradingWebhook() {
           version: VERSION,
           waConnected: !!sock,
           botJids: sock ? [...botJids(sock)] : [],
+          learnedBotJids: learnedBots(),
           lastMention: getLastMention(),
         })
       );

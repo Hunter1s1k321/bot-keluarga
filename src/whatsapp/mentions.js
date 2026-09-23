@@ -10,6 +10,18 @@ function stripDevice(jid = '') {
  * Semua kemungkinan JID bot: nomor biasa (@s.whatsapp.net) DAN LID (@lid).
  * WhatsApp baru kadang pakai LID untuk mention di grup.
  */
+// LID/JID bot yang "dipelajari" dari pesan fromMe di grup. Abis re-link, LID bot
+// DI GRUP (yg dipakai anggota buat nge-mention) sering BEDA dari sock.user.lid /
+// creds.me.lid. Tiap bot ngirim ke grup, echo fromMe-nya bawa key.participant =
+// identitas bot di grup itu. Kita rekam biar deteksi mention nyambung. Self-correct.
+const learnedBotJids = new Set();
+export function learnBotJid(jid) {
+  if (jid && typeof jid === 'string') learnedBotJids.add(stripDevice(jid));
+}
+export function learnedBots() {
+  return [...learnedBotJids];
+}
+
 export function botJids(sock) {
   const out = new Set();
   const add = (j) => {
@@ -22,6 +34,7 @@ export function botJids(sock) {
   const me = sock.authState?.creds?.me;
   add(me?.id);
   add(me?.lid);
+  for (const j of learnedBotJids) out.add(j); // LID grup yg dipelajari dari fromMe
   return out;
 }
 

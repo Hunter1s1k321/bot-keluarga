@@ -6,6 +6,7 @@ import baileys, {
 import qrcode from 'qrcode-terminal';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { learnBotJid } from './mentions.js';
 
 // Interop CJS->ESM: default export Baileys kadang di .default
 const makeWASocket = baileys.default || baileys;
@@ -75,6 +76,18 @@ export async function startWhatsApp({ onMessage, onReady } = {}) {
   });
 
   sock.ev.on('messages.upsert', async (ev) => {
+    // Pelajari identitas bot DI GRUP dari echo pesan sendiri (fromMe). key.participant
+    // = LID/JID bot sebagaimana grup nyebutnya -> dipakai deteksi mention (tahan re-link).
+    for (const msg of ev.messages || []) {
+      if (
+        msg.key?.fromMe &&
+        typeof msg.key?.remoteJid === 'string' &&
+        msg.key.remoteJid.endsWith('@g.us') &&
+        msg.key?.participant
+      ) {
+        learnBotJid(msg.key.participant);
+      }
+    }
     logger.info(`[upsert] type=${ev.type} count=${ev.messages?.length || 0}`);
     // 'notify' = pesan baru real-time (bukan sync riwayat lama)
     if (ev.type !== 'notify') return;
